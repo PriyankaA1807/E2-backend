@@ -1,56 +1,57 @@
 import os
 import joblib
+import numpy as np
 import pandas as pd
 
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_absolute_error, r2_score
 
 
-# Sample historical delivery data
-# In the real project, this will come from the database.
-data = {
-    "distance_km": [
-        10, 25, 40, 15, 60,
-        30, 45, 20, 70, 35,
-        50, 18, 80, 55, 12,
-        42, 65, 28, 75, 22
-    ],
-
-    "quantity": [
-        20, 50, 100, 30, 150,
-        80, 120, 40, 200, 70,
-        110, 25, 180, 130, 15,
-        90, 160, 60, 190, 45
-    ],
-
-    "supplier_delay_history": [
-        0.5, 1.2, 2.0, 0.8, 3.0,
-        1.5, 2.2, 0.6, 3.5, 1.0,
-        2.5, 0.4, 4.0, 2.8, 0.3,
-        1.8, 3.2, 1.1, 3.8, 0.7
-    ],
-
-    "carrier_delay_history": [
-        0.3, 1.0, 1.8, 0.5, 2.5,
-        1.2, 2.0, 0.4, 3.0, 0.8,
-        2.1, 0.3, 3.5, 2.2, 0.2,
-        1.5, 2.8, 0.9, 3.2, 0.6
-    ],
-
-    # Target: actual delivery time in hours
-    "delivery_time_hours": [
-        1.2, 2.8, 4.5, 1.8, 7.2,
-        3.6, 5.4, 2.0, 8.5, 3.1,
-        6.0, 1.5, 9.2, 6.8, 1.0,
-        4.8, 7.5, 2.9, 8.8, 2.5
-    ]
-}
+np.random.seed(42)
 
 
-df = pd.DataFrame(data)
+n_samples = 2000
+
+distance_km = np.random.uniform(10, 2000, n_samples)
+quantity = np.random.uniform(10, 500, n_samples)
+supplier_delay_history = np.random.uniform(0, 8, n_samples)
+carrier_delay_history = np.random.uniform(0, 8, n_samples)
+
+# Assume average road speed around 55 km/h.
+base_travel_time = distance_km / 55
+
+# Quantity adds a relatively small handling/loading effect.
+quantity_effect = quantity * 0.003
+
+# Historical supplier/carrier delays influence ETA.
+supplier_effect = supplier_delay_history * 0.6
+carrier_effect = carrier_delay_history * 0.7
+
+# Small random operational variation
+noise = np.random.normal(0, 0.8, n_samples)
+
+delivery_time_hours = (
+    base_travel_time
+    + quantity_effect
+    + supplier_effect
+    + carrier_effect
+    + noise
+)
+
+# Prevent impossible negative delivery times
+delivery_time_hours = np.maximum(delivery_time_hours, 0.5)
 
 
-# Features
+df = pd.DataFrame({
+    "distance_km": distance_km,
+    "quantity": quantity,
+    "supplier_delay_history": supplier_delay_history,
+    "carrier_delay_history": carrier_delay_history,
+    "delivery_time_hours": delivery_time_hours
+})
+
+
 X = df[
     [
         "distance_km",
@@ -60,11 +61,9 @@ X = df[
     ]
 ]
 
-# Target
 y = df["delivery_time_hours"]
 
 
-# Split data
 X_train, X_test, y_train, y_test = train_test_split(
     X,
     y,
@@ -73,24 +72,24 @@ X_train, X_test, y_train, y_test = train_test_split(
 )
 
 
-# Create ML model
 model = RandomForestRegressor(
-    n_estimators=100,
-    random_state=42
+    n_estimators=200,
+    random_state=42,
+    n_jobs=-1
 )
 
-
-# Train
 model.fit(X_train, y_train)
 
 
-# Check model score
-score = model.score(X_test, y_test)
+predictions = model.predict(X_test)
 
-print(f"Model R² score: {score:.2f}")
+print(f"R² score: {r2_score(y_test, predictions):.3f}")
+print(
+    f"Mean Absolute Error: "
+    f"{mean_absolute_error(y_test, predictions):.2f} hours"
+)
 
 
-# Create model directory
 model_dir = os.path.join(
     os.path.dirname(__file__),
     "saved_models"
@@ -98,8 +97,6 @@ model_dir = os.path.join(
 
 os.makedirs(model_dir, exist_ok=True)
 
-
-# Save model
 model_path = os.path.join(
     model_dir,
     "eta_model.pkl"

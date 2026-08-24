@@ -1,8 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.database import SessionLocal
+from app.database import get_db
 from app.models import YardDock
+from app.schemas import (
+    YardDockCreate,
+    YardDockResponse
+)
 
 
 router = APIRouter(
@@ -11,27 +15,29 @@ router = APIRouter(
 )
 
 
-# Database dependency
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+# ============================================================
+# CREATE DOCK
+# ============================================================
 
-
-# Create Yard/Dock
-@router.post("/")
+@router.post(
+    "/",
+    response_model=YardDockResponse,
+    status_code=201
+)
 def create_yard_dock(
-    yard_name: str,
-    dock_number: str,
-    status: str = "available",
+    dock_data: YardDockCreate,
     db: Session = Depends(get_db)
 ):
+
     dock = YardDock(
-        yard_name=yard_name,
-        dock_number=dock_number,
-        status=status
+        yard_name=dock_data.yard_name,
+        dock_number=dock_data.dock_number,
+        status=dock_data.status,
+        dock_type=dock_data.dock_type,
+        supported_vehicle_type=dock_data.supported_vehicle_type,
+        max_vehicle_length=dock_data.max_vehicle_length,
+        refrigerated=dock_data.refrigerated,
+        hazardous_allowed=dock_data.hazardous_allowed
     )
 
     db.add(dock)
@@ -41,22 +47,34 @@ def create_yard_dock(
     return dock
 
 
-# Get all Yard/Docks
-@router.get("/")
+# ============================================================
+# GET ALL DOCKS
+# ============================================================
+
+@router.get(
+    "/",
+    response_model=list[YardDockResponse]
+)
 def get_yard_docks(
     db: Session = Depends(get_db)
 ):
-    docks = db.query(YardDock).all()
 
-    return docks
+    return db.query(YardDock).all()
 
 
-# Get one Yard/Dock
-@router.get("/{dock_id}")
+# ============================================================
+# GET ONE DOCK
+# ============================================================
+
+@router.get(
+    "/{dock_id}",
+    response_model=YardDockResponse
+)
 def get_yard_dock(
     dock_id: int,
     db: Session = Depends(get_db)
 ):
+
     dock = db.query(YardDock).filter(
         YardDock.id == dock_id
     ).first()
@@ -70,13 +88,20 @@ def get_yard_dock(
     return dock
 
 
-# Update Yard/Dock
-@router.put("/{dock_id}")
+# ============================================================
+# UPDATE DOCK STATUS
+# ============================================================
+
+@router.put(
+    "/{dock_id}",
+    response_model=YardDockResponse
+)
 def update_yard_dock(
     dock_id: int,
     status: str,
     db: Session = Depends(get_db)
 ):
+
     dock = db.query(YardDock).filter(
         YardDock.id == dock_id
     ).first()
@@ -85,6 +110,25 @@ def update_yard_dock(
         raise HTTPException(
             status_code=404,
             detail="Yard/Dock not found"
+        )
+
+    allowed = {
+        "available",
+        "occupied",
+        "reserved",
+        "maintenance",
+        "blocked"
+    }
+
+    status = status.lower().strip()
+
+    if status not in allowed:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "Invalid dock status",
+                "allowed_statuses": sorted(allowed)
+            }
         )
 
     dock.status = status
@@ -95,12 +139,16 @@ def update_yard_dock(
     return dock
 
 
-# Delete Yard/Dock
+# ============================================================
+# DELETE DOCK
+# ============================================================
+
 @router.delete("/{dock_id}")
 def delete_yard_dock(
     dock_id: int,
     db: Session = Depends(get_db)
 ):
+
     dock = db.query(YardDock).filter(
         YardDock.id == dock_id
     ).first()
@@ -109,6 +157,12 @@ def delete_yard_dock(
         raise HTTPException(
             status_code=404,
             detail="Yard/Dock not found"
+        )
+
+    if dock.status == "occupied":
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot delete an occupied dock"
         )
 
     db.delete(dock)
