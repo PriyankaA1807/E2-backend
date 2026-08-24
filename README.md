@@ -1272,30 +1272,7 @@ A trained model allows ETA behavior to be learned from historical/training data 
 
 ---
 
-# 29. Current Limitations
-
-The current implementation should be treated as a strong project/demo backend rather than a finished enterprise logistics platform.
-
-Known areas for further engineering include:
-
-* authentication and authorization;
-* automated API test coverage;
-* database migration management;
-* production deployment configuration;
-* real telematics/GPS integration;
-* production-grade background-job infrastructure;
-* centralized structured logging;
-* API rate limiting;
-* comprehensive audit logging;
-* consistent enum/state validation;
-* model monitoring/versioning;
-* real-time push communication to frontend clients.
-
-GPS movement is simulated for development/demo purposes and should not be represented as a production GPS integration.
-
----
-
-# 30. Future Improvements
+# 29. Future Improvements
 
 ### Security
 
