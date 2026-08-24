@@ -1356,6 +1356,3 @@ Implemented capabilities include:
 # Repository
 
 **GitHub:** `PriyankaA1807/E2-backend`
-
-
-This keeps the repository usable by backend developers, frontend developers, reviewers, and future maintainers without requiring undocumented knowledge of the implementation.
