@@ -2,128 +2,182 @@
 
 The Deliveries API manages physical shipment records created for Restock Orders.
 
-A Delivery is the main logistics entity in E2. Once created, it is used by the **Tracking, GPS Simulation, Operations & Alerts, Dock Operations, and Dashboard** modules.
+A Delivery is the central logistics entity in E2. Once created, it is used by:
+
+- Tracking
+- GPS Simulation
+- ETA Prediction
+- Operations & Alerts
+- Yard Operations
+- Dock Operations
+- Dashboard
+- PR2 Integration
 
 **Base path:** `/deliveries`
 
 ---
 
-## Endpoints
+# Endpoints
 
-| Method | Endpoint                                 | Purpose                                   |
-| ------ | ---------------------------------------- | ----------------------------------------- |
-| POST   | `/deliveries/`                           | Create a Delivery                         |
-| GET    | `/deliveries/`                           | Get all Deliveries                        |
-| GET    | `/deliveries/{delivery_id}`              | Get a Delivery by ID                      |
-| GET    | `/deliveries/tracking/{tracking_number}` | Find a Delivery using its tracking number |
-| PUT    | `/deliveries/{delivery_id}/status`       | Update Delivery status                    |
+| Method | Endpoint | Purpose |
+|---|---|---|
+| POST | `/deliveries/` | Create a Delivery |
+| GET | `/deliveries/` | Get all Deliveries |
+| GET | `/deliveries/{delivery_id}` | Get a Delivery by ID |
+| GET | `/deliveries/tracking/{tracking_number}` | Find a Delivery by tracking number |
+| PUT | `/deliveries/{delivery_id}/status` | Update Delivery lifecycle status |
 
 ---
 
 # Delivery Object
 
-A Delivery represents one shipment associated with a Restock Order.
+A Delivery represents one physical shipment associated with a Restock Order.
 
-The Delivery model stores information used throughout the logistics workflow, including:
+The Delivery model stores:
 
-| Field                   | Type            | Purpose                                      |
-| ----------------------- | --------------- | -------------------------------------------- |
-| `id`                    | integer         | Database-generated Delivery ID               |
-| `restock_order_id`      | integer         | Restock Order associated with the shipment   |
-| `dock_id`               | integer / null  | Assigned Yard Dock                           |
-| `tracking_number`       | string / null   | Shipment tracking number                     |
-| `carrier`               | string / null   | Shipment carrier                             |
-| `status`                | string          | Current Delivery status                      |
-| `scheduled_arrival`     | datetime / null | Planned arrival time                         |
-| `actual_arrival`        | datetime / null | Actual arrival time                          |
-| `current_latitude`      | float / null    | Latest shipment latitude                     |
-| `current_longitude`     | float / null    | Latest shipment longitude                    |
-| `current_location`      | string / null   | Latest location description                  |
-| `destination_latitude`  | float / null    | Destination latitude                         |
-| `destination_longitude` | float / null    | Destination longitude                        |
-| `estimated_arrival`     | datetime / null | Current estimated arrival                    |
-| `eta_minutes`           | integer / null  | Estimated remaining travel time              |
-| `average_speed_kmph`    | float / null    | Current/simulated average speed              |
-| `distance_remaining_km` | float / null    | Remaining distance                           |
-| `last_gps_update`       | datetime / null | Latest GPS update time                       |
-| `simulation_active`     | boolean         | Whether GPS simulation is running            |
-| `delay_detected`        | boolean         | Whether delay logic flagged the Delivery     |
-| `exception_detected`    | boolean         | Whether exception logic flagged the Delivery |
+| Field | Type | Purpose |
+|---|---|---|
+| `id` | integer | Internal E2 Delivery ID |
+| `restock_order_id` | integer | Linked Restock Order |
+| `dock_id` | integer / null | Assigned Yard Dock |
+| `tracking_number` | string / null | Carrier tracking number |
+| `trailer_id` | string / null | Trailer / vehicle identifier |
+| `shipment_reference` | string / null | External shipment reference |
+| `carrier` | string / null | Shipment carrier |
+| `status` | string | Current lifecycle status |
+| `scheduled_arrival` | datetime / null | Planned arrival |
+| `actual_arrival` | datetime / null | Actual arrival |
+| `current_latitude` | float / null | Current GPS latitude |
+| `current_longitude` | float / null | Current GPS longitude |
+| `current_location` | string / null | Latest location |
+| `destination_latitude` | float / null | Destination latitude |
+| `destination_longitude` | float / null | Destination longitude |
+| `estimated_arrival` | datetime / null | Current ETA timestamp |
+| `eta_minutes` | float / null | Remaining ETA |
+| `average_speed_kmph` | float / null | Current/simulated speed |
+| `distance_remaining_km` | float / null | Remaining distance |
+| `last_gps_update` | datetime / null | Last GPS update |
+| `simulation_active` | boolean | Whether simulation is running |
+| `delay_detected` | boolean | Delay flag |
+| `exception_detected` | boolean | Exception flag |
 
-Some fields may be `null` until tracking, simulation, dock assignment, or operational processing supplies them.
+Some fields remain `null` until tracking, simulation, ETA prediction, dock assignment, or yard processing supplies them.
 
 ---
 
-# Create Delivery
+# Shipment Identification
 
-## `POST /deliveries/`
+E2 supports multiple identifiers for the same Delivery:
+
+```text
+tracking_number
+trailer_id
+shipment_reference
+delivery_id
+```
+
+Conceptually:
+
+```text
+Tracking Number
+Trailer ID
+Shipment Reference
+       ↓
+    Delivery
+       ↓
+Internal E2 ID
+```
+
+Use:
+
+- `tracking_number` for carrier/logistics lookup;
+- `trailer_id` for yard/trailer operations;
+- `shipment_reference` for cross-system correlation;
+- `delivery_id` for internal E2 operational APIs.
+
+---
+
+# 1. Create Delivery
+
+## Endpoint
+
+```http
+POST /deliveries/
+```
 
 Creates a new shipment for an existing Restock Order.
 
-### Request
+---
 
-**Content-Type:** `application/json`
+# Request Body
 
-A typical request contains values such as:
+Example:
 
 ```json
 {
   "restock_order_id": 1,
   "dock_id": null,
-  "tracking_number": "TRK-10001",
-  "carrier": "ABC Logistics",
-  "status": "scheduled"
+  "tracking_number": "TRK-E2-101",
+  "trailer_id": "TRL-101",
+  "shipment_reference": "SHIP-E2-101",
+  "carrier": "BlueDart",
+  "status": "scheduled",
+  "scheduled_arrival": "2026-08-25T15:00:00",
+  "destination_latitude": 23.0225,
+  "destination_longitude": 72.5714
 }
 ```
 
-Additional Delivery fields supported by the Delivery creation schema can be supplied when available.
+Additional Delivery fields may be supplied if supported by the schema.
 
 ---
 
 # Required Relationship
 
-A Delivery must reference an existing Restock Order.
+A Delivery must reference an existing Restock Order:
 
 ```text
 Restock Order
       ↓
 restock_order_id
       ↓
-   Delivery
+Delivery
 ```
 
-A dock is optional during Delivery creation.
+A dock is optional when the shipment is created.
 
-This allows a shipment to exist before its final Yard Dock has been selected.
+This allows:
+
+```text
+Shipment Created
+      ↓
+No Dock Yet
+      ↓
+Later Recommendation / Scheduling / Assignment
+```
 
 ---
 
 # Backend Validation
 
-Before creating a Delivery, the backend performs the following checks:
+The backend validates:
 
 ```text
-Receive Delivery request
+Receive Delivery Request
         ↓
-Check Restock Order
-        ↓
-Exists?
- No → HTTP 404
+Restock Order Exists?
+   No → 404
         ↓ Yes
 dock_id supplied?
-   │
-   ├── Yes → Check Yard Dock
-   │             ↓
-   │          Missing → HTTP 404
-   │
+   ├── Yes → Validate Yard Dock
    └── No
         ↓
 tracking_number supplied?
         ↓
-Check for duplicate
+Check duplicate
         ↓
 Duplicate?
- Yes → HTTP 400
+   Yes → 400
         ↓ No
 Create Delivery
         ↓
@@ -134,9 +188,13 @@ Return Delivery
 
 ---
 
-## Restock Order Not Found
+# Restock Order Not Found
 
-**HTTP 404**
+```http
+404 Not Found
+```
+
+Example:
 
 ```json
 {
@@ -146,11 +204,15 @@ Return Delivery
 
 ---
 
-## Yard Dock Not Found
+# Yard Dock Not Found
 
-If a `dock_id` is supplied but that dock does not exist:
+If a supplied `dock_id` does not exist:
 
-**HTTP 404**
+```http
+404 Not Found
+```
+
+Example:
 
 ```json
 {
@@ -160,11 +222,15 @@ If a `dock_id` is supplied but that dock does not exist:
 
 ---
 
-## Duplicate Tracking Number
+# Duplicate Tracking Number
 
-If another Delivery already uses the supplied tracking number:
+If another Delivery already uses the same tracking number:
 
-**HTTP 400**
+```http
+400 Bad Request
+```
+
+Example:
 
 ```json
 {
@@ -172,105 +238,138 @@ If another Delivery already uses the supplied tracking number:
 }
 ```
 
-This allows other modules to safely identify a shipment using its tracking number.
+Tracking numbers should therefore be treated as unique shipment identifiers inside E2.
 
 ---
 
 # Successful Creation
 
-**HTTP 201**
+```http
+201 Created
+```
 
-The API returns the newly created Delivery object.
-
-Conceptually:
+Example:
 
 ```json
 {
-  "id": 2,
   "restock_order_id": 1,
   "dock_id": null,
-  "tracking_number": "TRK-10001",
-  "carrier": "ABC Logistics",
+  "tracking_number": "TRK-E2-101",
+  "trailer_id": "TRL-101",
+  "shipment_reference": "SHIP-E2-101",
+  "carrier": "BlueDart",
   "status": "scheduled",
+  "scheduled_arrival": "2026-08-25T15:00:00",
   "actual_arrival": null,
+  "current_latitude": null,
+  "current_longitude": null,
+  "current_location": null,
+  "destination_latitude": 23.0225,
+  "destination_longitude": 72.5714,
+  "estimated_arrival": null,
+  "eta_minutes": null,
+  "average_speed_kmph": 50,
+  "distance_remaining_km": null,
   "simulation_active": false,
+  "id": 3,
   "delay_detected": false,
-  "exception_detected": false
+  "exception_detected": false,
+  "last_gps_update": null
 }
 ```
 
-Fields that have not yet been populated may be `null`.
-
 ---
 
-# Get All Deliveries
+# 2. Get All Deliveries
 
-## `GET /deliveries/`
-
-Returns all Delivery records.
-
-### Request
-
-No body is required.
-
-### Example Usage
+## Endpoint
 
 ```http
 GET /deliveries/
 ```
 
-### Response
+Returns all Delivery records.
 
-The response is an array of Delivery objects.
+---
+
+# Example Request
+
+```http
+GET /deliveries/
+```
+
+---
+
+# Example Response
 
 ```json
 [
   {
-    "id": 1,
     "restock_order_id": 1,
-    "tracking_number": "TRK-001",
-    "carrier": "ABC Logistics",
-    "status": "in_transit"
+    "dock_id": 2,
+    "tracking_number": "TRK-E2-101",
+    "trailer_id": "TRL-101",
+    "shipment_reference": "SHIP-E2-101",
+    "carrier": "BlueDart",
+    "status": "arrived_at_gate",
+    "id": 3,
+    "delay_detected": false,
+    "exception_detected": false
   },
   {
-    "id": 2,
-    "restock_order_id": 2,
-    "tracking_number": "TRK-002",
-    "carrier": "XYZ Transport",
-    "status": "scheduled"
+    "restock_order_id": 3,
+    "dock_id": null,
+    "tracking_number": "TRK-PR2-TEST-001",
+    "trailer_id": "TRL-PR2-001",
+    "shipment_reference": "SHIP-PR2-001",
+    "carrier": "BlueDart",
+    "status": "scheduled",
+    "id": 4,
+    "delay_detected": false,
+    "exception_detected": false
   }
 ]
 ```
 
-The actual returned objects contain the Delivery fields defined by the response schema.
-
-The current endpoint does not implement pagination, filtering, or search parameters.
+The actual endpoint returns the complete Delivery response schema.
 
 ---
 
-# Get Delivery by ID
+# 3. Get Delivery by ID
 
-## `GET /deliveries/{delivery_id}`
-
-Returns a Delivery using its internal database ID.
-
-### Path Parameter
-
-| Parameter     | Type    | Required | Description          |
-| ------------- | ------- | -------: | -------------------- |
-| `delivery_id` | integer |      Yes | Delivery database ID |
-
-Example:
+## Endpoint
 
 ```http
-GET /deliveries/2
+GET /deliveries/{delivery_id}
+```
+
+Returns a Delivery using the internal E2 ID.
+
+---
+
+# Path Parameter
+
+| Parameter | Type | Required | Description |
+|---|---|---:|---|
+| `delivery_id` | integer | Yes | Internal E2 Delivery ID |
+
+---
+
+# Example Request
+
+```http
+GET /deliveries/4
 ```
 
 ---
 
-## Delivery Not Found
+# Delivery Not Found
 
-**HTTP 404**
+```http
+404 Not Found
+```
+
+Example:
 
 ```json
 {
@@ -280,159 +379,276 @@ GET /deliveries/2
 
 ---
 
-# Get Delivery by Tracking Number
+# 4. Get Delivery by Tracking Number
 
-## `GET /deliveries/tracking/{tracking_number}`
-
-Finds a shipment using its external tracking number instead of the internal Delivery ID.
-
-### Path Parameter
-
-| Parameter         | Type   | Required | Description              |
-| ----------------- | ------ | -------: | ------------------------ |
-| `tracking_number` | string |      Yes | Shipment tracking number |
-
-Example:
+## Endpoint
 
 ```http
-GET /deliveries/tracking/TRK-10001
+GET /deliveries/tracking/{tracking_number}
 ```
 
-This endpoint is useful when another system knows the tracking number but does not know E2's internal `delivery_id`.
+Finds a Delivery by tracking number.
 
 ---
 
-## Shipment Not Found
+# Path Parameter
 
-If no Delivery has the supplied tracking number, the API returns `404`.
+| Parameter | Type | Required |
+|---|---|---:|
+| `tracking_number` | string | Yes |
 
 ---
 
-# Update Delivery Status
-
-## `PUT /deliveries/{delivery_id}/status`
-
-Updates the operational status of a Delivery.
-
-The new status is supplied as a **query parameter**.
-
-### Path Parameter
-
-| Parameter     | Type    | Required |
-| ------------- | ------- | -------: |
-| `delivery_id` | integer |      Yes |
-
-### Query Parameter
-
-| Parameter | Type   | Required |
-| --------- | ------ | -------: |
-| `status`  | string |      Yes |
-
-Example:
+# Example
 
 ```http
-PUT /deliveries/2/status?status=arrived
+GET /deliveries/tracking/TRK-PR2-TEST-001
+```
+
+This is useful when another system knows the external tracking number but not E2's `delivery_id`.
+
+For richer shipment lookup, the dedicated Tracking API also supports:
+
+```http
+GET /tracking/shipment/{tracking_number}
+GET /tracking/trailer/{trailer_id}
+GET /tracking/reference/{shipment_reference}
 ```
 
 ---
 
-# Supported Delivery Status Values
+# 5. Update Delivery Status
 
-The current API accepts:
+## Endpoint
+
+```http
+PUT /deliveries/{delivery_id}/status
+```
+
+Updates the operational lifecycle state of a Delivery.
+
+The new status is sent as a query parameter.
+
+---
+
+# Path Parameter
+
+| Parameter | Type | Required |
+|---|---|---:|
+| `delivery_id` | integer | Yes |
+
+---
+
+# Query Parameter
+
+| Parameter | Type | Required |
+|---|---|---:|
+| `status` | string | Yes |
+
+---
+
+# Example
+
+```http
+PUT /deliveries/3/status?status=in_yard
+```
+
+---
+
+# Delivery Lifecycle
+
+The current E2 lifecycle is designed around both transport and yard/dock operations.
+
+Typical flow:
+
+```text
+scheduled
+   ↓
+in_transit
+   ↓
+arrived_at_gate
+   ↓
+in_yard
+   ↓
+waiting_for_dock
+   ↓
+dock_assigned
+   ↓
+docked
+   ↓
+unloading
+   ↓
+completed
+   ↓
+departed
+```
+
+Delay can occur during the flow:
+
+```text
+in_transit
+   ↓
+delayed
+```
+
+Legacy test records may still contain:
+
+```text
+arrived
+delivered
+```
+
+for compatibility with earlier data.
+
+---
+
+# Supported Operational States
+
+Current lifecycle values can include:
 
 ```text
 scheduled
 in_transit
 delayed
-arrived
+arrived_at_gate
+in_yard
+waiting_for_dock
+dock_assigned
+docked
 unloading
-delivered
+completed
+departed
 cancelled
 ```
 
-The supplied value is normalized before validation.
-
-A normal business flow can be represented as:
+Legacy compatibility may also include:
 
 ```text
-scheduled
-    ↓
-in_transit
-    ↓
 arrived
-    ↓
-unloading
-    ↓
 delivered
 ```
 
-Additional operational states are:
+depending on existing records and implementation history.
+
+---
+
+# Lifecycle Validation
+
+Unlike the older implementation, E2 now validates allowed state transitions.
+
+Conceptually:
 
 ```text
-delayed
-
-cancelled
+Current Status
+      ↓
+Requested New Status
+      ↓
+Is Transition Allowed?
+   ┌──────┴──────┐
+   No            Yes
+    ↓             ↓
+  400        Apply Change
 ```
 
----
-
-# Invalid Status
-
-If the supplied status is not in the allowed set, the API returns:
-
-**HTTP 400**
-
-with a FastAPI `detail` response describing the allowed status values.
-
----
-
-# Arrival Side Effect
-
-Updating a Delivery to:
+Example valid transition:
 
 ```text
-arrived
+arrived_at_gate
+      ↓
+in_yard
+```
+
+Example invalid transition:
+
+```text
+arrived_at_gate
+      ↓
+completed
+```
+
+If the transition is not permitted, the API rejects it.
+
+---
+
+# Why Lifecycle Validation Matters
+
+A strict lifecycle prevents states such as:
+
+```text
+scheduled → unloading
 ```
 
 or:
 
 ```text
-delivered
+arrived_at_gate → completed
 ```
 
-has an additional side effect.
+from bypassing required yard/dock operations.
 
-If `actual_arrival` has not already been recorded, the backend sets:
+This protects downstream logic for:
 
-```text
-actual_arrival = current UTC time
-```
-
-Therefore another service does not need to separately submit an actual-arrival timestamp when using this status update route.
+- yard dashboards;
+- dock scheduling;
+- reassignment;
+- operational alerts;
+- trailer-door allocation.
 
 ---
 
-# Important Status Behavior
+# Arrival Side Effects
 
-The backend validates **which status names are allowed**, but it does not currently enforce a strict transition state machine.
-
-For example, the API itself does not enforce:
+When a Delivery reaches an arrival-related state, E2 can set:
 
 ```text
-scheduled
-    ↓
-in_transit
-    ↓
-arrived
-    ↓
-unloading
-    ↓
-delivered
+actual_arrival
 ```
 
-as the only possible sequence.
+if it is not already populated.
 
-Integrating clients should therefore use the agreed business sequence even though the current API does not strictly enforce every transition.
+For example:
+
+```text
+arrived_at_gate
+```
+
+can represent the physical arrival at the facility.
+
+This timestamp is then used by yard and scheduling logic.
+
+---
+
+# Status and Yard State
+
+Delivery status directly affects:
+
+```text
+/dashboard/yard-status
+```
+
+Examples:
+
+```text
+arrived_at_gate
+      ↓
+AT_GATE
+
+in_yard
+      ↓
+IN_YARD
+
+waiting_for_dock
+      ↓
+WAITING_FOR_DOCK
+
+dock_assigned
+      ↓
+DOCK_ASSIGNED
+
+docked
+      ↓
+DOCKED
+```
 
 ---
 
@@ -443,74 +659,72 @@ Delivery is the central logistics object.
 ```text
 Restock Order
       ↓
-   Delivery
-      │
-      ├────────→ Tracking
-      │
-      ├────────→ GPS Simulation
-      │
-      ├────────→ Operations
-      │             ↓
-      │           Alerts
-      │
-      ├────────→ Dock Operations
-      │
-      └────────→ Dashboard
+Delivery
+   │
+   ├── Tracking
+   ├── GPS Simulation
+   ├── ETA Prediction
+   ├── Operations
+   │      ↓
+   │    Alerts
+   │
+   ├── Yard Status
+   ├── Dock Scheduling
+   ├── Dock Assignment
+   ├── Dock Reassignment
+   └── Dashboard
 ```
 
-Most logistics APIs use:
+Most E2 operational APIs use:
 
 ```text
 delivery_id
 ```
 
-as their reference.
-
-Therefore, after creating a Delivery, the integrating application should keep the returned `id`.
+as their primary internal reference.
 
 ---
 
 # Tracking Integration
 
-A Delivery can be retrieved using either:
+A Delivery can be found using:
 
 ```http
 GET /deliveries/{delivery_id}
 ```
 
-or its tracking number:
+or:
 
 ```http
 GET /deliveries/tracking/{tracking_number}
 ```
 
-The dedicated Tracking API additionally provides:
+The Tracking API provides additional lookup options:
 
 ```http
 GET /tracking/shipment/{tracking_number}
+GET /tracking/shipment/id/{delivery_id}
+GET /tracking/trailer/{trailer_id}
+GET /tracking/reference/{shipment_reference}
 ```
 
-and:
+Tracking history is available through:
 
 ```http
 GET /tracking/{delivery_id}/events
 ```
 
-The Delivery contains the latest shipment state, while TrackingEvents provide shipment history.
-
 ---
 
 # GPS Simulation Integration
 
-A Delivery can be placed into simulated movement using:
+A Delivery can enter simulated movement using:
 
 ```http
 POST /simulation/start/{delivery_id}
 ```
 
-After simulation starts, the Delivery is updated with GPS/ETA information by the simulation/background logic.
-
-Fields affected include:
+Simulation updates fields such as:
 
 ```text
 current_latitude
@@ -524,86 +738,129 @@ estimated_arrival
 status
 ```
 
-The latest Delivery state therefore acts as the source for current shipment position.
+Manual simulation advancement:
+
+```http
+POST /simulation/step/{delivery_id}
+```
+
+Stop simulation:
+
+```http
+POST /simulation/stop/{delivery_id}
+```
 
 ---
 
 # ETA Integration
 
-There are two ETA concepts in the project.
-
-### Delivery/Simulation ETA
-
-GPS simulation calculates ETA from the shipment's remaining distance and speed and stores the result on the Delivery.
-
-### ML ETA
-
-The separate:
+E2 currently supports:
 
 ```http
 GET /eta/predict
 ```
 
-endpoint uses the trained ML model.
+for direct model prediction.
 
-These are separate mechanisms in the current implementation.
+For an existing Delivery:
+
+```http
+POST /eta/predict-delivery/{delivery_id}
+```
+
+can use:
+
+```text
+Delivery.distance_remaining_km
+RestockOrder.quantity
+Supplier Delay History
+Carrier Delay History
+```
+
+to calculate:
+
+```text
+Estimated Delivery Hours
+Estimated Delivery Minutes
+Estimated Arrival
+Predicted Delay
+```
+
+The endpoint can also update:
+
+```text
+Delivery.estimated_arrival
+Delivery.eta_minutes
+Delivery.delay_detected
+Delivery.status
+```
+
+and create/reuse a delay alert.
 
 ---
 
 # Operations & Alerts Integration
 
-The Operations module examines Delivery records for operational problems.
-
-For example:
+Operations can evaluate the Delivery using:
 
 ```http
 POST /operations/detect-delays
+POST /operations/detect-exceptions
+POST /operations/detect-dock-unavailable
+POST /operations/detect-reassignment-required
 ```
 
-can mark:
+Potential Delivery effects include:
 
 ```text
 delay_detected = true
+exception_detected = true
 status = delayed
 ```
-
-and create an Alert.
-
-Similarly:
-
-```http
-POST /operations/detect-exceptions
-```
-
-can set:
-
-```text
-exception_detected = true
-```
-
-when configured exception conditions are found.
 
 ---
 
 # Dock Integration
 
-A Delivery may initially have:
+A Delivery can initially have:
 
 ```text
 dock_id = null
 ```
 
-A dock can later be recommended using:
+Then E2 can:
 
 ```http
 GET /dock-operations/recommend/{delivery_id}
 ```
 
-and assigned using:
+generate a schedule through:
+
+```http
+GET /dock-operations/schedule
+```
+
+assign:
 
 ```http
 POST /dock-operations/assign/{delivery_id}
 ```
+
+reassign manually:
+
+```http
+POST /dock-operations/reassign/{delivery_id}
+```
+
+or automatically:
+
+```http
+POST /dock-operations/auto-reassign/{delivery_id}
+```
+
+---
+
+# Dock Assignment Side Effect
 
 After assignment:
 
@@ -613,49 +870,144 @@ Delivery.dock_id
 Selected YardDock
 ```
 
+and the selected Dock becomes:
+
+```text
+reserved
+```
+
+If a blocked current dock is replaced, the blocked status should remain blocked rather than being incorrectly restored to available.
+
+---
+
+# Dashboard Integration
+
+Delivery data feeds:
+
+```http
+GET /dashboard/summary
+GET /dashboard/live-shipments
+GET /dashboard/yard-status
+GET /dashboard/dock-schedule
+GET /dashboard/trailer-door-allocation
+GET /dashboard/insights
+```
+
+For example:
+
+```text
+Delivery
+   ↓
+Status + ETA + Dock + Flags
+   ↓
+Dashboard
+```
+
+---
+
+# PR2 Integration
+
+External systems such as PR2 can create E2 shipment records using:
+
+```http
+POST /integrations/shipments
+```
+
+PR2 sends information such as:
+
+```text
+external_order_id
+tracking_number
+trailer_id
+shipment_reference
+carrier
+quantity
+scheduled_arrival
+destination
+```
+
+E2 then creates:
+
+```text
+ShipmentIntegration
++
+RestockOrder
++
+Delivery
+```
+
+The resulting Delivery can use all normal E2 workflows.
+
+---
+
+# Example PR2-Created Delivery
+
+```json
+{
+  "restock_order_id": 3,
+  "dock_id": null,
+  "tracking_number": "TRK-PR2-TEST-001",
+  "trailer_id": "TRL-PR2-001",
+  "shipment_reference": "SHIP-PR2-001",
+  "carrier": "BlueDart",
+  "status": "scheduled",
+  "scheduled_arrival": "2026-08-27T18:00:00",
+  "destination_latitude": 23.0225,
+  "destination_longitude": 72.5714,
+  "average_speed_kmph": 50,
+  "simulation_active": false,
+  "id": 4,
+  "delay_detected": false,
+  "exception_detected": false
+}
+```
+
 ---
 
 # Frontend Integration
 
-A shipment list can use:
+## Shipment List
 
 ```text
 Page Load
    ↓
 GET /deliveries/
    ↓
-Render shipment rows
+Render Shipment Rows
 ```
 
-A shipment detail screen can use:
+---
+
+## Shipment Detail
 
 ```text
 GET /deliveries/{delivery_id}
-          │
-          ├── shipment information
-          │
-          ├── current GPS
-          │
-          ├── ETA
-          │
-          ├── status
-          │
-          └── assigned dock
+       │
+       ├── Shipment Identity
+       ├── GPS
+       ├── ETA
+       ├── Lifecycle State
+       ├── Delay / Exception Flags
+       └── Assigned Dock
 ```
 
 Then load related data:
 
 ```text
 GET /tracking/{delivery_id}/events
-          ↓
-Shipment Timeline
+        ↓
+Timeline
+
+POST /eta/predict-delivery/{delivery_id}
+        ↓
+ML ETA
 
 GET /dock-operations/recommend/{delivery_id}
-          ↓
+        ↓
 Dock Recommendations
 
 GET /operations/alerts
-          ↓
+        ↓
 Operational Alerts
 ```
 
@@ -663,26 +1015,33 @@ Operational Alerts
 
 # Cross-Team Integration Notes
 
-For other backend/services, the most important identifier is:
+For external services, the best correlation identifiers are:
+
+```text
+tracking_number
+trailer_id
+shipment_reference
+```
+
+For internal E2 operational calls, use:
 
 ```text
 delivery_id
 ```
 
-The tracking number can be used for external shipment lookup, but most internal E2 operational APIs use the Delivery ID.
-
-Recommended integration pattern:
+Recommended pattern:
 
 ```text
-POST /deliveries/
-       ↓
-Receive Delivery
-       ↓
-Store returned delivery.id
-       ↓
-Use ID for:
-   tracking
+External System
+      ↓
+Create / Import Shipment
+      ↓
+Receive delivery_id
+      ↓
+Use delivery_id for:
+   tracking events
    simulation
+   ETA
    dock operations
    operational workflows
 ```
@@ -691,15 +1050,16 @@ Use ID for:
 
 # Error Handling
 
-| HTTP Status | Meaning                                         |
-| ----------: | ----------------------------------------------- |
-|       `200` | Successful read/status update                   |
-|       `201` | Delivery created                                |
-|       `400` | Invalid status or duplicate tracking number     |
-|       `404` | Delivery, Restock Order, or Yard Dock not found |
-|       `422` | Request/path/query validation failure           |
+| HTTP Status | Meaning |
+|---:|---|
+| `200` | Successful read/status update |
+| `201` | Delivery created |
+| `400` | Invalid lifecycle transition / status / duplicate tracking number |
+| `404` | Delivery, Restock Order, or Yard Dock not found |
+| `422` | Request/path/query validation error |
+| `500` | Unexpected backend/database error |
 
-FastAPI HTTP errors normally use:
+FastAPI errors generally use:
 
 ```json
 {
@@ -711,25 +1071,43 @@ FastAPI HTTP errors normally use:
 
 # Current Limitations
 
-The current Deliveries API does not implement:
+The current Deliveries API does not yet provide:
 
-* Pagination
-* Search/filtering
-* Strict status-transition enforcement
-* Authentication/authorization
-* Real GPS provider integration
-* Automatic Delivery creation when a Restock Order is created
+- pagination;
+- advanced search/filtering;
+- authentication/authorization;
+- bulk delivery creation;
+- real carrier API integration;
+- automated shipment creation from every Restock Order;
+- audit-history table for every lifecycle transition.
 
-Creating a Restock Order does **not** automatically create a Delivery.
+However, external shipment creation is supported through:
 
-The expected integration remains:
+```http
+POST /integrations/shipments
+```
+
+and lifecycle validation now protects yard/dock workflow consistency.
+
+---
+
+# Summary
+
+The Delivery is the central operational entity in E2.
 
 ```text
-Create Restock Order
-        ↓
-POST /deliveries/
-        ↓
-Delivery created
-        ↓
-Tracking / Simulation / Operations / Dock workflow
+Restock Order / External Shipment
+           ↓
+        Delivery
+           │
+           ├── Tracking
+           ├── GPS
+           ├── ETA
+           ├── Operations
+           ├── Yard
+           ├── Dock Scheduling
+           ├── Reassignment
+           └── Dashboard
 ```
+
+All major logistics workflows ultimately connect back to the Delivery record.
