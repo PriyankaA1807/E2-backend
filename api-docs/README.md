@@ -5,16 +5,14 @@ API documentation for the **E2 Smart Restock & Yard Dock Delivery Tracker**.
 ## Base URL
 
 ```text
-http://127.0.0.1:8000
+https://e2-backend.onrender.com
 ```
 
 Swagger:
 
 ```text
-http://127.0.0.1:8000/docs
+https://e2-backend.onrender.com/docs
 ```
-
-> Replace the local URL with the deployed backend URL after deployment.
 
 ---
 
@@ -67,12 +65,12 @@ Dashboard
 PR2 or another backend can send shipment data using:
 
 ```http
-POST /integrations/shipments
+POST https://e2-backend.onrender.com/integrations/shipments
 ```
 
 The imported shipment becomes a normal E2 Delivery and can then be used by Tracking, ETA, Dock Operations, and Dashboard APIs.
 
-See [integrations-api.md](integrations-api.md) for details.
+See [integrations-api.md](integrations-api.md) for complete integration details.
 
 ---
 
