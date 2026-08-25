@@ -1,150 +1,178 @@
 # Yard Docks API
 
-The Yard Docks API manages loading/unloading docks available inside the yard.
+The Yard Docks API manages the physical dock records available inside E2 yards.
 
-Dock records are later used by the **Delivery** and **Dock Operations** modules for dock recommendation, assignment, reassignment, and operational status tracking.
+Dock records are used by:
+
+- Delivery
+- Dock Operations
+- Dock Scheduling
+- Trailer-Door Allocation
+- Operations & Alerts
+- Dashboard
+- WMS-style simulation feed
 
 **Base path:** `/yard-docks`
 
 ---
 
-## Endpoints
+# Endpoints
 
-| Method | Endpoint                | Purpose            |
-| ------ | ----------------------- | ------------------ |
-| POST   | `/yard-docks/`          | Create a Yard Dock |
-| GET    | `/yard-docks/`          | Get all Yard Docks |
-| GET    | `/yard-docks/{dock_id}` | Get one Yard Dock  |
-| PUT    | `/yard-docks/{dock_id}` | Update Dock status |
+| Method | Endpoint | Purpose |
+|---|---|---|
+| POST | `/yard-docks/` | Create a Yard Dock |
+| GET | `/yard-docks/` | Get all Yard Docks |
+| GET | `/yard-docks/{dock_id}` | Get one Yard Dock |
+| PUT | `/yard-docks/{dock_id}` | Update Dock status |
 | DELETE | `/yard-docks/{dock_id}` | Delete a Yard Dock |
 
 ---
 
 # Yard Dock Object
 
-A Yard Dock stores information about a physical dock and its capabilities.
+A Yard Dock stores information about a physical loading/unloading door and its operational capabilities.
 
-The model contains information such as:
+| Field | Type | Description |
+|---|---|---|
+| `id` | integer | Database-generated Dock ID |
+| `yard_name` | string | Yard containing the dock |
+| `dock_number` | string | Dock identifier |
+| `status` | string | Current operational state |
+| `dock_type` | string | Dock type |
+| `supported_vehicle_type` | string | Supported vehicle type |
+| `max_vehicle_length` | float | Maximum supported vehicle length |
+| `refrigerated` | boolean | Refrigeration support |
+| `hazardous_allowed` | boolean | Hazardous-load support |
 
-| Field                    | Type          | Description                                |
-| ------------------------ | ------------- | ------------------------------------------ |
-| `id`                     | integer       | Database-generated Dock ID                 |
-| `yard_name`              | string        | Yard containing the dock                   |
-| `dock_number`            | string        | Dock identifier/number                     |
-| `status`                 | string        | Current operational status                 |
-| `dock_type`              | string / null | Type of dock                               |
-| `supported_vehicle_type` | string / null | Supported vehicle type                     |
-| `max_vehicle_length`     | float / null  | Maximum supported vehicle length           |
-| `refrigerated`           | boolean       | Whether refrigeration support is available |
-| `hazardous_allowed`      | boolean       | Whether hazardous loads are allowed        |
-
-These capability fields can also be used by dock recommendation logic.
+These capability fields are used by recommendation and scheduling logic.
 
 ---
 
-# Create Yard Dock
+# 1. Create Yard Dock
 
-## `POST /yard-docks/`
+## Endpoint
+
+```http
+POST /yard-docks/
+```
 
 Creates a new Yard Dock.
 
-### Request
+---
 
-**Content-Type:** `application/json`
+## Request Body
+
+```json
+{
+  "yard_name": "Main Warehouse",
+  "dock_number": "D-01",
+  "status": "available",
+  "dock_type": "standard",
+  "supported_vehicle_type": "truck",
+  "max_vehicle_length": 20,
+  "refrigerated": false,
+  "hazardous_allowed": false
+}
+```
+
+---
+
+## Successful Response
+
+```http
+201 Created
+```
 
 Example:
 
 ```json
 {
-  "yard_name": "Main Yard",
+  "yard_name": "Main Warehouse",
   "dock_number": "D-01",
   "status": "available",
   "dock_type": "standard",
   "supported_vehicle_type": "truck",
   "max_vehicle_length": 20,
   "refrigerated": false,
-  "hazardous_allowed": false
+  "hazardous_allowed": false,
+  "id": 1
 }
 ```
 
 ---
 
-# Successful Response
+# 2. Get All Yard Docks
 
-**HTTP 201**
-
-The backend stores the Yard Dock and returns the created record.
-
-Example structure:
-
-```json
-{
-  "id": 1,
-  "yard_name": "Main Yard",
-  "dock_number": "D-01",
-  "status": "available",
-  "dock_type": "standard",
-  "supported_vehicle_type": "truck",
-  "max_vehicle_length": 20,
-  "refrigerated": false,
-  "hazardous_allowed": false
-}
-```
-
----
-
-# Get All Yard Docks
-
-## `GET /yard-docks/`
-
-Returns all Yard Dock records.
-
-### Example Request
+## Endpoint
 
 ```http
 GET /yard-docks/
 ```
 
-### Example Response
+Returns all Yard Dock records.
+
+---
+
+## Example Request
+
+```http
+GET /yard-docks/
+```
+
+---
+
+## Example Response
 
 ```json
 [
   {
-    "id": 1,
-    "yard_name": "Main Yard",
+    "yard_name": "Main Warehouse",
     "dock_number": "D-01",
-    "status": "available",
-    "dock_type": "standard"
+    "status": "blocked",
+    "dock_type": "standard",
+    "supported_vehicle_type": "truck",
+    "max_vehicle_length": 20,
+    "refrigerated": false,
+    "hazardous_allowed": false,
+    "id": 1
   },
   {
-    "id": 2,
-    "yard_name": "Main Yard",
-    "dock_number": "D-02",
+    "yard_name": "Kolkata Main Yard",
+    "dock_number": "D-01",
     "status": "reserved",
-    "dock_type": "standard"
+    "dock_type": "standard",
+    "supported_vehicle_type": "truck",
+    "max_vehicle_length": 20,
+    "refrigerated": false,
+    "hazardous_allowed": false,
+    "id": 2
   }
 ]
 ```
 
-The actual response follows the Yard Dock response schema.
+---
 
-The current endpoint does not implement pagination, filtering, or search.
+# 3. Get Yard Dock by ID
+
+## Endpoint
+
+```http
+GET /yard-docks/{dock_id}
+```
+
+Returns a single Yard Dock.
 
 ---
 
-# Get Yard Dock by ID
+## Path Parameter
 
-## `GET /yard-docks/{dock_id}`
+| Parameter | Type | Required | Description |
+|---|---|---:|---|
+| `dock_id` | integer | Yes | Yard Dock database ID |
 
-Returns one Yard Dock.
+---
 
-### Path Parameter
-
-| Parameter | Type    | Required | Description           |
-| --------- | ------- | -------: | --------------------- |
-| `dock_id` | integer |      Yes | Yard Dock database ID |
-
-Example:
+## Example
 
 ```http
 GET /yard-docks/1
@@ -154,7 +182,11 @@ GET /yard-docks/1
 
 ## Yard Dock Not Found
 
-**HTTP 404**
+```http
+404 Not Found
+```
+
+Example:
 
 ```json
 {
@@ -164,37 +196,45 @@ GET /yard-docks/1
 
 ---
 
-# Update Yard Dock Status
+# 4. Update Yard Dock Status
 
-## `PUT /yard-docks/{dock_id}`
+## Endpoint
+
+```http
+PUT /yard-docks/{dock_id}
+```
 
 Updates the operational status of an existing Yard Dock.
 
-The current endpoint updates **status**, rather than acting as a complete edit endpoint for all Dock fields.
+This route updates **status only**.
 
-### Path Parameter
+---
 
-| Parameter | Type    | Required |
-| --------- | ------- | -------: |
-| `dock_id` | integer |      Yes |
+## Path Parameter
 
-### Query Parameter
+| Parameter | Type | Required |
+|---|---|---:|
+| `dock_id` | integer | Yes |
 
-| Parameter | Type   | Required |
-| --------- | ------ | -------: |
-| `status`  | string |      Yes |
+---
 
-Example:
+## Query Parameter
+
+| Parameter | Type | Required |
+|---|---|---:|
+| `status` | string | Yes |
+
+---
+
+## Example
 
 ```http
-PUT /yard-docks/1?status=maintenance
+PUT /yard-docks/1?status=blocked
 ```
 
 ---
 
 # Supported Dock Status Values
-
-The current backend accepts:
 
 ```text
 available
@@ -204,43 +244,43 @@ maintenance
 blocked
 ```
 
-The supplied value is trimmed and converted to lowercase before validation.
+The backend normalizes the supplied value before validation.
 
-For example:
+Example:
 
 ```text
-"AVAILABLE"
-     ↓
-"available"
+BLOCKED
+   ↓
+blocked
 ```
 
 ---
 
-# Meaning of Dock Statuses
+# Dock Status Meaning
 
-### `available`
+## `available`
 
-The Dock is available for assignment.
+Dock can be selected for a new assignment.
 
-### `reserved`
+## `reserved`
 
-The Dock has been assigned/reserved for a Delivery.
+Dock is currently reserved for a Delivery.
 
-### `occupied`
+## `occupied`
 
-The Dock is currently occupied.
+Dock is physically occupied.
 
-### `maintenance`
+## `maintenance`
 
-The Dock is unavailable because of maintenance.
+Dock is unavailable because of maintenance.
 
-### `blocked`
+## `blocked`
 
-The Dock is unavailable for operational use.
+Dock is unavailable for operational use.
 
 ---
 
-# Backend Logic
+# Backend Update Logic
 
 ```text
 Receive dock_id + status
@@ -248,59 +288,102 @@ Receive dock_id + status
 Find Yard Dock
         ↓
 Dock exists?
- No → HTTP 404
+   No → 404
         ↓ Yes
-Normalize status
+Normalize Status
         ↓
-Status allowed?
- No → HTTP 400
+Allowed?
+   No → 400
         ↓ Yes
-Update status
+Update Dock
         ↓
 Commit
         ↓
-Return updated Dock
+Return Updated Dock
 ```
 
 ---
 
-# Invalid Status
+# Example Status Update
 
-If the supplied status is outside the supported values, the backend returns HTTP `400`.
+```http
+PUT /yard-docks/1?status=blocked
+```
 
-The frontend should therefore use the known status values rather than allowing arbitrary text.
+Response:
 
-A dropdown/select control is suitable:
+```json
+{
+  "yard_name": "Main Warehouse",
+  "dock_number": "D-01",
+  "status": "blocked",
+  "dock_type": "standard",
+  "supported_vehicle_type": "truck",
+  "max_vehicle_length": 20,
+  "refrigerated": false,
+  "hazardous_allowed": false,
+  "id": 1
+}
+```
+
+---
+
+# Operational Impact of Status Changes
+
+Changing a dock's status can affect active Deliveries.
+
+For example:
 
 ```text
-Available
-Reserved
-Occupied
-Maintenance
-Blocked
+Delivery 2
+   ↓
+dock_id = 1
+
+Dock 1
+   ↓
+status changes:
+reserved → blocked
+```
+
+This means the Delivery still references Dock 1, but the dock is no longer operationally usable.
+
+E2 can then detect the issue through:
+
+```http
+POST /operations/detect-dock-unavailable
+```
+
+and:
+
+```http
+POST /operations/detect-reassignment-required
 ```
 
 ---
 
-# Delete Yard Dock
+# 5. Delete Yard Dock
 
-## `DELETE /yard-docks/{dock_id}`
+## Endpoint
+
+```http
+DELETE /yard-docks/{dock_id}
+```
 
 Deletes an existing Yard Dock.
 
-### Example Request
+---
+
+## Example
 
 ```http
 DELETE /yard-docks/1
 ```
 
-Before deletion, the backend checks the Dock's current operational state.
-
 ---
 
 # Occupied Dock Protection
 
-A Dock whose status is:
+A dock whose status is:
 
 ```text
 occupied
@@ -310,7 +393,11 @@ cannot be deleted.
 
 The backend returns:
 
-**HTTP 400**
+```http
+400 Bad Request
+```
+
+Example:
 
 ```json
 {
@@ -318,13 +405,9 @@ The backend returns:
 }
 ```
 
-This prevents an actively occupied Dock from being removed through the API.
-
 ---
 
 # Successful Delete
-
-If the Dock exists and is not occupied:
 
 ```json
 {
@@ -334,105 +417,181 @@ If the Dock exists and is not occupied:
 
 ---
 
-# How Yard Docks Connect to Deliveries
+# Delivery Relationship
 
 A Delivery can reference a Yard Dock through:
 
 ```text
-delivery.dock_id
+Delivery.dock_id
 ```
 
 Relationship:
 
 ```text
-Yard Dock
-    ↑
-    │ dock_id
-    │
+YardDock
+   ↑
+   │ dock_id
+   │
 Delivery
 ```
 
-A Delivery does not necessarily need a Dock when it is first created.
+A Delivery may initially have:
 
-For example:
+```text
+dock_id = null
+```
+
+This allows dock allocation to happen later.
+
+---
+
+# Normal Dock Lifecycle
+
+Conceptually:
 
 ```text
 Delivery Created
       ↓
 dock_id = null
       ↓
-Shipment travels
+Shipment Approaches Yard
       ↓
-Dock recommendation
+Dock Recommendation
       ↓
-Dock assignment
+Dock Scheduling
       ↓
-delivery.dock_id = selected dock
+Dock Assignment
+      ↓
+Dock.status = reserved
+      ↓
+Delivery.dock_id = selected dock
 ```
-
-This allows Dock assignment to happen later in the shipment lifecycle.
 
 ---
 
 # Dock Operations Integration
 
-The Yard Docks API manages the Dock records themselves.
+The Yard Docks API manages dock records.
 
-The separate Dock Operations API handles operational decisions involving those Docks.
+The Dock Operations API performs operational decisions.
 
 ```text
-Yard Docks API
+Yard Docks
       ↓
-Stores Dock Information
+Dock Configuration
       ↓
 Dock Operations
-      ├── Recommendation
-      ├── Assignment
-      └── Reassignment
+      ├── Recommend
+      ├── Schedule
+      ├── Assign
+      ├── Reassign
+      └── Auto-Reassign
 ```
 
-Recommendation:
+Related endpoints:
 
 ```http
 GET /dock-operations/recommend/{delivery_id}
-```
-
-Assignment:
-
-```http
+GET /dock-operations/schedule
 POST /dock-operations/assign/{delivery_id}
-```
-
-Reassignment:
-
-```http
 POST /dock-operations/reassign/{delivery_id}
+POST /dock-operations/auto-reassign/{delivery_id}
 ```
-
-See `dock-operations-api.md` for those operations.
 
 ---
 
 # Dock Recommendation Relationship
 
-The currently registered recommendation logic considers Yard Dock information when ranking Docks.
+Dock configuration affects recommendation scores.
 
-Examples of information used by the current scoring logic include:
+Examples:
 
 ```text
 status
 supported_vehicle_type
-refrigerated
 dock_type
+refrigerated
+hazardous_allowed
+max_vehicle_length
 ```
 
-Therefore Yard Dock configuration directly affects recommendation results.
+A dock that is:
+
+```text
+blocked
+maintenance
+occupied
+```
+
+should not be treated as a normal available recommendation.
+
+---
+
+# Dock Scheduling Relationship
+
+Dock scheduling uses YardDock state to determine whether a dock can receive an incoming trailer.
+
+Conceptually:
+
+```text
+Incoming Delivery
+      ↓
+Effective Arrival
+      ↓
+Load Yard Docks
+      ↓
+Check Operational State
+      ↓
+Usable Dock?
+      ↓
+Generate Time Slot
+```
+
+Current schedule endpoint:
+
+```http
+GET /dock-operations/schedule
+```
+
+and dashboard equivalent:
+
+```http
+GET /dashboard/dock-schedule
+```
+
+---
+
+# Blocked Dock Scheduling Behavior
+
+A blocked dock should not be preserved as a valid current assignment.
+
+Example:
+
+```text
+Delivery 2
+   ↓
+Current Dock = 1
+   ↓
+Dock 1 = blocked
+   ↓
+Scheduler rejects Dock 1
+   ↓
+Alternative Dock evaluated
+   ↓
+Dock 2 selected
+```
 
 ---
 
 # Dock Assignment Side Effect
 
-When a Dock is assigned through Dock Operations, the selected Dock is changed to:
+When assigned through:
+
+```http
+POST /dock-operations/assign/{delivery_id}
+```
+
+the selected dock becomes:
 
 ```text
 reserved
@@ -444,64 +603,231 @@ and the Delivery receives:
 dock_id = selected dock ID
 ```
 
+---
+
+# Manual Reassignment
+
+Manual reassignment:
+
+```http
+POST /dock-operations/reassign/{delivery_id}
+```
+
 Conceptually:
 
 ```text
-Available Dock
-      +
-Delivery
-      ↓
-Dock Assignment
-      ↓
-Dock.status = reserved
-      +
-Delivery.dock_id = Dock.id
-```
-
----
-
-# Dock Reassignment
-
-If a Delivery is moved to another Dock through the Dock Operations API:
-
-```text
 Old Dock
-   ↓
-available
+      ↓
+Release old reservation when appropriate
 
 New Dock
-   ↓
+      ↓
 reserved
 
 Delivery
-   ↓
-dock_id = New Dock ID
+      ↓
+dock_id = new dock
 ```
-
-This logic is handled by Dock Operations rather than by this Yard Docks API.
 
 ---
 
-# Dashboard Integration
+# Important Old Dock Behavior
 
-Dock information is also exposed through:
+If the old dock is:
+
+```text
+reserved
+```
+
+it can be released to:
+
+```text
+available
+```
+
+But if the old dock is:
+
+```text
+blocked
+maintenance
+```
+
+its operational problem should remain.
+
+Changing the Delivery assignment should not incorrectly reset a blocked dock to available.
+
+---
+
+# Automatic Reassignment
+
+E2 supports:
+
+```http
+POST /dock-operations/auto-reassign/{delivery_id}
+```
+
+This endpoint:
+
+```text
+Finds Delivery
+      ↓
+Loads Available Docks
+      ↓
+Excludes Current Dock
+      ↓
+Scores Candidates
+      ↓
+Selects Best Alternative
+      ↓
+Reserves New Dock
+      ↓
+Updates Delivery
+```
+
+---
+
+# Operations Integration
+
+YardDock state is used by Operations.
+
+Related endpoints:
+
+```http
+POST /operations/detect-dock-unavailable
+POST /operations/detect-reassignment-required
+```
+
+Example:
+
+```text
+Dock 1
+status = blocked
+       ↓
+Delivery 2 uses Dock 1
+       ↓
+detect-dock-unavailable
+       ↓
+Delivery 2 returned
+       ↓
+detect-reassignment-required
+       ↓
+reassignment_required = true
+```
+
+---
+
+# Trailer-Door Allocation
+
+The Dashboard exposes:
+
+```http
+GET /dashboard/trailer-door-allocation
+```
+
+This compares:
+
+```text
+Current Dock
+      vs
+Scheduled / Recommended Dock
+```
+
+Example:
+
+```text
+Current Dock:
+Dock 1
+BLOCKED
+
+Recommended Dock:
+Dock 2
+
+Result:
+REASSIGNMENT_RECOMMENDED
+```
+
+---
+
+# Yard Status Integration
+
+Current trailer-to-dock state is also available through:
+
+```http
+GET /dashboard/yard-status
+```
+
+Each trailer can include:
+
+```text
+assigned_dock
+dock_status
+dock_type
+yard_name
+dock_number
+```
+
+---
+
+# Dashboard Dock Status
+
+Dock information is exposed through:
 
 ```http
 GET /dashboard/dock-status
 ```
 
-The Dashboard uses Yard Dock data to provide frontend-friendly Dock status information.
+The dashboard can show:
 
-Dashboard summary also counts Dock states such as:
+```text
+available
+reserved
+occupied
+blocked
+maintenance
+```
+
+---
+
+# Dashboard Summary
+
+The dashboard summary can aggregate dock states.
+
+Conceptually:
 
 ```text
 total
 available
 occupied
 reserved
+blocked
+maintenance
 ```
 
-Therefore a frontend dashboard does not need to manually calculate every Dock KPI from `/yard-docks/`.
+The exact response should follow the running Swagger/OpenAPI schema.
+
+---
+
+# Simulated WMS Feed
+
+Dock information can also appear in:
+
+```http
+GET /simulation/wms-feed
+```
+
+This provides a combined operational feed containing:
+
+```text
+Trailers
++
+Docks
+```
+
+Useful for:
+
+- frontend demos;
+- WMS-like integration testing;
+- yard capacity visibility.
 
 ---
 
@@ -510,74 +836,67 @@ Therefore a frontend dashboard does not need to manually calculate every Dock KP
 A Yard Management screen can load:
 
 ```text
-Page Load
-   ↓
 GET /yard-docks/
-   ↓
+      ↓
 Render Dock Cards
 ```
 
-For example:
+Example:
 
 ```text
 D-01
-AVAILABLE
+BLOCKED
 
 D-02
 RESERVED
 
 D-03
-OCCUPIED
-
-D-04
-MAINTENANCE
+AVAILABLE
 ```
 
-Status can then determine how each Dock is displayed or whether it can be selected for an operation.
-
----
-
-# Creating a Dock
-
-Typical UI flow:
+For scheduling:
 
 ```text
-Add Dock
-   ↓
-Enter Yard Information
-   ↓
-Enter Dock Capabilities
-   ↓
-POST /yard-docks/
-   ↓
-Dock Created
-   ↓
-Refresh Yard View
+GET /dashboard/dock-schedule
+```
+
+For assignment:
+
+```text
+POST /dock-operations/assign/{delivery_id}
+```
+
+For automatic recovery:
+
+```text
+POST /dock-operations/auto-reassign/{delivery_id}
 ```
 
 ---
 
-# Updating Dock Status
+# Status Update UI
+
+Typical flow:
 
 ```text
-Operator changes status
-        ↓
-PUT /yard-docks/{dock_id}?status=...
-        ↓
-Backend validates status
-        ↓
+Operator selects Dock
+      ↓
+Changes status
+      ↓
+PUT /yard-docks/{dock_id}?status=blocked
+      ↓
+Backend validates
+      ↓
 Dock updated
-        ↓
-Refresh Dock card
+      ↓
+Operations / Dashboard reflect change
 ```
 
 ---
 
-# Cross-Team Integration Notes
+# Cross-Team Integration
 
-Another application does not need to understand the Python Dock model.
-
-It primarily needs to understand:
+Another system primarily needs to understand:
 
 ```text
 Dock ID
@@ -585,31 +904,40 @@ Dock Status
 Dock Capabilities
 ```
 
-and the supported status values:
+Supported operational statuses:
 
 ```text
 available
-occupied
 reserved
+occupied
 maintenance
 blocked
 ```
 
-When another service needs to assign a Dock to a Delivery, it should normally use the **Dock Operations API**, rather than manually changing `delivery.dock_id`.
+Another service should not manually update:
+
+```text
+Delivery.dock_id
+```
+
+to perform assignment.
+
+Use Dock Operations APIs so E2 maintains consistent state.
 
 ---
 
 # Error Handling
 
-| HTTP Status | Meaning                                               |
-| ----------: | ----------------------------------------------------- |
-|       `200` | Successful read/update/delete                         |
-|       `201` | Yard Dock created                                     |
-|       `400` | Invalid Dock status or occupied Dock deletion attempt |
-|       `404` | Yard Dock not found                                   |
-|       `422` | Request/path/query validation failure                 |
+| HTTP Status | Meaning |
+|---:|---|
+| `200` | Successful read/update/delete |
+| `201` | Yard Dock created |
+| `400` | Invalid status / invalid delete operation |
+| `404` | Yard Dock not found |
+| `422` | Request/path/query validation failure |
+| `500` | Unexpected backend/database failure |
 
-FastAPI HTTP errors normally use:
+FastAPI errors generally use:
 
 ```json
 {
@@ -621,26 +949,37 @@ FastAPI HTTP errors normally use:
 
 # Current Limitations
 
-The current Yard Docks API does not implement:
+The Yard Docks API currently does not provide:
 
-* Pagination
-* Search/filtering
-* Full Dock-detail update through this route
-* Authentication/authorization
-* Automatic Dock occupancy sensing
+- pagination;
+- search/filtering;
+- full dock configuration editing through PUT;
+- authentication/authorization;
+- automatic physical occupancy sensors;
+- dock utilization history;
+- persistent dock-capacity analytics;
+- yard-specific access control.
 
-Dock recommendation and assignment are handled separately by the **Dock Operations API**.
+Dock recommendation, scheduling, assignment, and reassignment are handled by the Dock Operations layer.
 
-The frontend should therefore treat:
+---
+
+# Summary
+
+The Yard Docks API acts as E2's dock master-data and operational-status layer.
 
 ```text
-/yard-docks
+YardDock Configuration
+        ↓
+Dock Status
+        ↓
+Recommendation
+        ↓
+Scheduling
+        ↓
+Assignment / Reassignment
+        ↓
+Operations / Dashboard
 ```
 
-as Dock master/status management, and:
-
-```text
-/dock-operations
-```
-
-as the operational recommendation and assignment layer.
+Use `/yard-docks` for dock configuration/status, and `/dock-operations` for operational allocation decisions.
