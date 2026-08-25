@@ -1,67 +1,85 @@
-# GPS Simulation API
+# GPS & Simulation API
 
-The GPS Simulation API simulates shipment movement for a Delivery.
+The GPS & Simulation API simulates shipment movement for an E2 Delivery and exposes a simulated WMS-style operational feed.
 
-It allows E2 to demonstrate live shipment tracking without requiring a real GPS device or external telematics provider.
+It allows E2 to demonstrate:
 
-Once simulation is started, the backend can update the Delivery's current location, distance, speed, ETA, and shipment status.
+- live shipment movement;
+- GPS updates;
+- remaining-distance calculation;
+- speed variation;
+- ETA updates;
+- shipment arrival behavior;
+- trailer/yard visibility;
+- dock assignment state;
+- simulated WMS integration.
 
 **Base path:** `/simulation`
 
 ---
 
-## Endpoints
+# Endpoints
 
-| Method | Endpoint                          | Purpose                                        |
-| ------ | --------------------------------- | ---------------------------------------------- |
-| POST   | `/simulation/start/{delivery_id}` | Start GPS simulation                           |
-| POST   | `/simulation/step/{delivery_id}`  | Manually move the shipment one simulation step |
-| POST   | `/simulation/stop/{delivery_id}`  | Stop GPS simulation                            |
+| Method | Endpoint | Purpose |
+|---|---|---|
+| POST | `/simulation/start/{delivery_id}` | Start GPS simulation |
+| POST | `/simulation/step/{delivery_id}` | Manually advance one simulation step |
+| POST | `/simulation/stop/{delivery_id}` | Stop GPS simulation |
+| GET | `/simulation/wms-feed` | Get simulated WMS-style trailer/dock feed |
 
 ---
 
-# Simulation Workflow
+# Simulation Architecture
 
 ```text
-Delivery Created
-      ↓
-POST /simulation/start/{delivery_id}
-      ↓
+Delivery
+   ↓
+Start Simulation
+   ↓
 simulation_active = true
-status = in_transit
-      ↓
+   ↓
 Background Tracking Loop
-      ↓
-GPS Position Updates
-      ↓
+   ↓
+GPS Movement
+   ↓
 Distance Remaining
-      ↓
+   ↓
 Speed
-      ↓
-ETA / Estimated Arrival
-      ↓
-Destination Reached
-      ↓
-Shipment Arrival
+   ↓
+ETA
+   ↓
+Estimated Arrival
+   ↓
+Operational State
+   ↓
+Dashboard / Tracking / WMS Feed
 ```
 
-The frontend does not need to repeatedly call the manual `/step` endpoint for normal automatic simulation.
+The frontend does not need to call `/step` repeatedly for normal automatic simulation.
 
 ---
 
-# Start GPS Simulation
+# 1. Start GPS Simulation
 
-## `POST /simulation/start/{delivery_id}`
+## Endpoint
+
+```http
+POST /simulation/start/{delivery_id}
+```
 
 Starts simulated GPS tracking for an existing Delivery.
 
-### Path Parameter
+---
 
-| Parameter     | Type    | Required | Description          |
-| ------------- | ------- | -------: | -------------------- |
-| `delivery_id` | integer |      Yes | Delivery to simulate |
+## Path Parameter
 
-### Example Request
+| Parameter | Type | Required | Description |
+|---|---|---:|---|
+| `delivery_id` | integer | Yes | Delivery to simulate |
+
+---
+
+## Example Request
 
 ```http
 POST /simulation/start/2
@@ -73,28 +91,24 @@ No request body is required.
 
 # Backend Logic
 
-The backend first retrieves the Delivery.
-
 ```text
 Receive delivery_id
-       ↓
+      ↓
 Find Delivery
-       ↓
+      ↓
 Delivery exists?
- No → HTTP 404
-       ↓ Yes
-Check GPS coordinates
-       ↓
-Set defaults where required
-       ↓
+  No → 404
+      ↓ Yes
+Check / initialize coordinates
+      ↓
 simulation_active = true
-       ↓
+      ↓
 status = in_transit
-       ↓
-last_gps_update = current UTC time
-       ↓
+      ↓
+last_gps_update = current UTC
+      ↓
 Commit
-       ↓
+      ↓
 Return confirmation
 ```
 
@@ -102,17 +116,20 @@ Return confirmation
 
 # Default Coordinates
 
-The simulation requires current and destination coordinates.
+The simulation requires:
 
-If required coordinates are missing when simulation starts, the current implementation supplies default coordinates so the simulator can operate.
+```text
+current_latitude
+current_longitude
+destination_latitude
+destination_longitude
+```
 
-This allows a Delivery without manually configured GPS coordinates to still be used in the demo simulation.
+If some values are missing, the current project logic can provide defaults so the shipment can still be used for demonstration.
 
 ---
 
-# Successful Response
-
-Example:
+# Example Successful Response
 
 ```json
 {
@@ -122,9 +139,7 @@ Example:
 }
 ```
 
-Starting simulation changes the Delivery's operational state.
-
-Conceptually:
+Starting simulation changes the operational state:
 
 ```text
 Before
@@ -146,15 +161,13 @@ last_gps_update = current time
 
 If the Delivery does not exist:
 
-**HTTP 404**
-
-with a FastAPI error response.
+```http
+404 Not Found
+```
 
 ---
 
 # Automatic Background Simulation
-
-Starting the simulation does not require the frontend to manually send every GPS update.
 
 The FastAPI application starts a background tracking loop during application startup.
 
@@ -165,9 +178,9 @@ Application Starts
       ↓
 tracking_background_loop()
       ↓
-Find active simulated Deliveries
+Find Deliveries where simulation_active = true
       ↓
-Update their movement periodically
+Update shipment movement periodically
 ```
 
 Once:
@@ -176,13 +189,13 @@ Once:
 simulation_active = true
 ```
 
-the background process can continue updating that Delivery.
+the background process can continue updating the Delivery without repeated frontend movement requests.
 
 ---
 
-# What the Background Process Updates
+# What Background Simulation Updates
 
-During simulated movement, Delivery tracking information can be updated, including:
+The background process can update:
 
 ```text
 current_latitude
@@ -194,40 +207,37 @@ distance_remaining_km
 eta_minutes
 estimated_arrival
 status
+actual_arrival
+simulation_active
 ```
 
-These values represent the latest simulated shipment state.
+These fields represent the latest simulated shipment state.
 
 ---
 
 # Simulated Movement
 
-The shipment is moved gradually from its current position toward its destination.
-
-Conceptually:
+The shipment moves gradually toward its destination.
 
 ```text
-Current Position
-      │
-      │ movement
-      ▼
-New Position
-      │
-      │ movement
-      ▼
-New Position
-      │
-      ▼
+Current GPS
+    ↓
+Movement Step
+    ↓
+New GPS
+    ↓
+Movement Step
+    ↓
+New GPS
+    ↓
 Destination
 ```
 
-The simulation also introduces small variation to make the GPS movement behave more like changing shipment coordinates rather than instantly jumping to the destination.
+Small coordinate variations can be introduced so movement appears more realistic.
 
 ---
 
 # Distance Calculation
-
-After movement, the simulator calculates the remaining distance between the shipment and its destination.
 
 Conceptually:
 
@@ -241,17 +251,13 @@ Distance Calculation
 distance_remaining_km
 ```
 
-The remaining distance is stored on the Delivery.
+The result is stored on the Delivery.
 
 ---
 
 # Speed and ETA
 
-The simulator generates/uses simulated shipment speed.
-
-Using the remaining distance and speed, it calculates remaining travel time.
-
-Conceptually:
+The simulation uses the current/simulated speed to calculate remaining travel time.
 
 ```text
 distance_remaining_km
@@ -265,7 +271,7 @@ ETA Minutes
 Estimated Arrival
 ```
 
-The result is stored in Delivery fields such as:
+The result is stored in:
 
 ```text
 eta_minutes
@@ -274,27 +280,25 @@ estimated_arrival
 
 ---
 
-# Important: Simulation ETA vs ML ETA
+# Simulation ETA vs ML ETA
 
-The ETA generated by GPS simulation is **not the same mechanism** as the machine-learning ETA endpoint.
+E2 contains two ETA mechanisms.
 
-Simulation uses movement information:
+## Simulation ETA
+
+Uses:
 
 ```text
 Remaining Distance
-        +
+        ÷
 Speed
         ↓
-Simulation ETA
+Travel Time
 ```
 
-The separate ML endpoint:
+## ML ETA
 
-```http
-GET /eta/predict
-```
-
-uses:
+Uses:
 
 ```text
 Distance
@@ -302,26 +306,40 @@ Quantity
 Supplier Delay History
 Carrier Delay History
         ↓
-Random Forest Model
-        ↓
-ML ETA
+RandomForestRegressor
 ```
 
-The simulation does not currently call the Random Forest model for every GPS update.
+Available through:
 
-See `eta-api.md` for ML ETA documentation.
+```http
+GET /eta/predict
+```
+
+and:
+
+```http
+POST /eta/predict-delivery/{delivery_id}
+```
+
+The background simulator does not necessarily run the Random Forest model on every movement update.
 
 ---
 
-# Manual Simulation Step
+# 2. Manual Simulation Step
 
-## `POST /simulation/step/{delivery_id}`
+## Endpoint
 
-Moves the shipment forward by one simulation step manually.
+```http
+POST /simulation/step/{delivery_id}
+```
 
-This endpoint is useful for testing or controlled demonstrations.
+Moves the shipment forward by one simulation step immediately.
 
-### Example Request
+This is useful for controlled testing.
+
+---
+
+## Example Request
 
 ```http
 POST /simulation/step/2
@@ -331,33 +349,33 @@ POST /simulation/step/2
 
 # Requirement
 
-The Delivery must already have an active simulation.
+The Delivery must have:
+
+```text
+simulation_active = true
+```
 
 Conceptually:
 
 ```text
 POST /simulation/step/{id}
-        ↓
+      ↓
 Find Delivery
-        ↓
+      ↓
 simulation_active?
-   No → Error
-        ↓ Yes
-Perform movement
+  No → Error
+      ↓ Yes
+Perform one movement step
 ```
 
 ---
 
 # Manual Step Logic
 
-A manual simulation step performs the movement calculations immediately.
-
 ```text
 Current GPS
      ↓
 Move toward destination
-     ↓
-Add simulated GPS variation
      ↓
 Generate/update speed
      ↓
@@ -378,17 +396,9 @@ Commit
 
 # TrackingEvent Side Effect
 
-An important difference between manual stepping and automatic background movement is TrackingEvent creation.
+The manual step can create a TrackingEvent representing the movement.
 
-Calling:
-
-```http
-POST /simulation/step/{delivery_id}
-```
-
-creates a TrackingEvent representing that simulation movement.
-
-Therefore the event can later appear in:
+That event can then be retrieved through:
 
 ```http
 GET /tracking/{delivery_id}/events
@@ -396,52 +406,73 @@ GET /tracking/{delivery_id}/events
 
 ---
 
-# Automatic Movement vs Manual Step
+# Background Movement vs Manual Step
 
-| Behavior                                 | Background Simulation | `/simulation/step` |
-| ---------------------------------------- | --------------------: | -----------------: |
-| Updates current GPS                      |                   Yes |                Yes |
-| Updates distance                         |                   Yes |                Yes |
-| Updates speed                            |                   Yes |                Yes |
-| Updates ETA                              |                   Yes |                Yes |
-| Updates Delivery                         |                   Yes |                Yes |
-| Creates TrackingEvent for the movement   |                    No |                Yes |
-| Requires frontend call for each movement |                    No |                Yes |
-
-This distinction is important for frontend integration.
+| Behavior | Background Simulation | Manual `/step` |
+|---|---:|---:|
+| Updates GPS | Yes | Yes |
+| Updates distance | Yes | Yes |
+| Updates speed | Yes | Yes |
+| Updates ETA | Yes | Yes |
+| Updates Delivery | Yes | Yes |
+| Creates TrackingEvent for every movement | No | Yes |
+| Requires frontend movement call | No | Yes |
 
 ---
 
 # Arrival Detection
 
-After each simulated movement, the backend checks whether the shipment has reached the coded arrival threshold.
-
-When the shipment is close enough to the destination, the simulator can mark the Delivery as arrived.
-
-Conceptually:
+After movement, the backend checks whether the shipment is sufficiently close to its destination.
 
 ```text
-Calculate Remaining Distance
-        ↓
-Within arrival threshold?
-   No → Continue simulation
-        ↓ Yes
-Shipment reached destination
-        ↓
-Update arrival state
+Remaining Distance
+      ↓
+Within Arrival Threshold?
+   ┌──────┴──────┐
+   No            Yes
+    ↓             ↓
+Continue      Arrival Processing
 ```
 
-The exact arrival behavior is controlled by the simulation logic in the backend.
+Arrival processing can update:
+
+```text
+actual_arrival
+status
+simulation_active
+distance_remaining_km
+eta_minutes
+```
+
+The exact lifecycle status depends on the current delivery workflow.
+
+For newer yard-oriented shipments, arrival-related statuses may include:
+
+```text
+arrived_at_gate
+```
+
+while older records may still contain:
+
+```text
+arrived
+```
 
 ---
 
-# Stop GPS Simulation
+# 3. Stop GPS Simulation
 
-## `POST /simulation/stop/{delivery_id}`
+## Endpoint
+
+```http
+POST /simulation/stop/{delivery_id}
+```
 
 Stops automatic simulation for a Delivery.
 
-### Example Request
+---
+
+## Example Request
 
 ```http
 POST /simulation/stop/2
@@ -453,107 +484,411 @@ The backend sets:
 simulation_active = false
 ```
 
-After this, the background simulation should no longer move that Delivery as an active simulated shipment.
+The background loop should then stop moving that shipment.
 
 ---
 
-# Frontend Integration
+# 4. Simulated WMS Feed
 
-For a normal live-tracking demo, the frontend can use:
+## Endpoint
+
+```http
+GET /simulation/wms-feed
+```
+
+Returns a simulated Warehouse Management System style feed containing operational trailer and dock information.
+
+This endpoint is useful for:
+
+- frontend integration;
+- PR2/WMS-style testing;
+- yard operations demonstrations;
+- trailer visibility;
+- dock availability monitoring.
+
+---
+
+# Example Request
+
+```http
+GET /simulation/wms-feed
+```
+
+No request body or query parameters are required.
+
+---
+
+# Example Successful Response
+
+```json
+{
+  "feed_type": "SIMULATED_WMS",
+  "generated_at": "2026-08-25T13:15:06.540483",
+  "summary": {
+    "total_trailers": 3,
+    "active_shipments": 3,
+    "delayed_shipments": 1,
+    "waiting_for_dock": 0,
+    "total_docks": 2,
+    "available_docks": 1
+  },
+  "trailers": [
+    {
+      "delivery_id": 3,
+      "tracking_number": "TRK-E2-101",
+      "trailer_id": "TRL-101",
+      "shipment_reference": "SHIP-E2-101",
+      "carrier": "BlueDart",
+      "trailer_status": "arrived_at_gate",
+      "yard_location": null,
+      "scheduled_arrival": "2026-08-25T15:00:00",
+      "estimated_arrival": null,
+      "actual_arrival": "2026-08-25T12:59:24.029154",
+      "eta_minutes": null,
+      "current_latitude": null,
+      "current_longitude": null,
+      "distance_remaining_km": null,
+      "delay_detected": false,
+      "exception_detected": false,
+      "simulation_active": false,
+      "assigned_dock": {
+        "dock_id": 1,
+        "dock_number": "D-01",
+        "yard_name": "Main Warehouse",
+        "status": "available",
+        "dock_type": "standard"
+      }
+    }
+  ],
+  "docks": [
+    {
+      "dock_id": 1,
+      "yard_name": "Main Warehouse",
+      "dock_number": "D-01",
+      "status": "available",
+      "dock_type": "standard",
+      "supported_vehicle_type": "truck",
+      "max_vehicle_length": 20,
+      "refrigerated": false,
+      "hazardous_allowed": false
+    }
+  ]
+}
+```
+
+---
+
+# WMS Feed Summary
+
+The `summary` object contains:
+
+| Field | Type | Description |
+|---|---|---|
+| `total_trailers` | integer | Total trailers/Deliveries included |
+| `active_shipments` | integer | Operationally active shipments |
+| `delayed_shipments` | integer | Shipments currently flagged delayed |
+| `waiting_for_dock` | integer | Shipments waiting for dock allocation |
+| `total_docks` | integer | Total YardDock records |
+| `available_docks` | integer | Docks currently available |
+
+---
+
+# WMS Trailer Object
+
+A trailer entry can include:
+
+| Field | Description |
+|---|---|
+| `delivery_id` | E2 Delivery ID |
+| `tracking_number` | Shipment tracking number |
+| `trailer_id` | Trailer identifier |
+| `shipment_reference` | Shipment reference |
+| `carrier` | Logistics carrier |
+| `trailer_status` | Current Delivery/trailer status |
+| `yard_location` | Current known location |
+| `scheduled_arrival` | Planned arrival |
+| `estimated_arrival` | Estimated arrival |
+| `actual_arrival` | Actual arrival |
+| `eta_minutes` | Remaining ETA |
+| `current_latitude` | Current latitude |
+| `current_longitude` | Current longitude |
+| `distance_remaining_km` | Remaining distance |
+| `delay_detected` | Delay flag |
+| `exception_detected` | Exception flag |
+| `simulation_active` | Simulation state |
+| `assigned_dock` | Current assigned dock |
+
+---
+
+# Assigned Dock Object
+
+Example:
+
+```json
+{
+  "dock_id": 2,
+  "dock_number": "D-01",
+  "yard_name": "Kolkata Main Yard",
+  "status": "reserved",
+  "dock_type": "standard"
+}
+```
+
+If the Delivery has no dock:
+
+```json
+"assigned_dock": null
+```
+
+---
+
+# WMS Dock Object
+
+The dock list can include:
+
+```text
+dock_id
+yard_name
+dock_number
+status
+dock_type
+supported_vehicle_type
+max_vehicle_length
+refrigerated
+hazardous_allowed
+```
+
+This lets another frontend/service obtain both:
+
+```text
+Incoming Trailers
++
+Current Dock Capacity
+```
+
+from one endpoint.
+
+---
+
+# WMS Feed Architecture
+
+```text
+Deliveries
+    │
+    ├── Tracking
+    ├── ETA
+    ├── Status
+    ├── Delay / Exception Flags
+    └── Dock Assignment
+    │
+Yard Docks
+    │
+    ├── Availability
+    ├── Type
+    └── Capabilities
+    │
+    ▼
+GET /simulation/wms-feed
+    │
+    ▼
+Simulated WMS Payload
+    │
+    ├── Summary
+    ├── Trailers
+    └── Docks
+```
+
+---
+
+# Why a Simulated WMS Feed Exists
+
+E2 does not require a real external Warehouse Management System during development.
+
+The simulated feed provides a stable integration contract for:
+
+- UI development;
+- cross-team testing;
+- yard/dock demonstrations;
+- future real WMS replacement.
+
+Conceptually:
+
+```text
+Current Project
+
+E2 Database
+    ↓
+Simulated WMS Feed
+    ↓
+Frontend / Other Service
+```
+
+A future production system could replace the simulated source with a real WMS or event stream while preserving similar downstream concepts.
+
+---
+
+# PR2 / External Integration Relationship
+
+PR2 can create a shipment through:
+
+```http
+POST /integrations/shipments
+```
+
+That shipment becomes a normal E2 Delivery.
+
+It can then appear in:
+
+```http
+GET /simulation/wms-feed
+```
+
+along with other active shipments.
+
+Conceptually:
+
+```text
+PR2
+ ↓
+Integration API
+ ↓
+E2 Delivery
+ ↓
+WMS Feed
+ ↓
+Yard / Dock UI
+```
+
+---
+
+# Relationship with Yard Status
+
+The Dashboard API also provides:
+
+```http
+GET /dashboard/yard-status
+```
+
+The difference is:
+
+## WMS Feed
+
+Provides a broad simulated external-system-style feed:
+
+```text
+Trailers + Docks
+```
+
+## Yard Status
+
+Provides a frontend-oriented operational yard view:
+
+```text
+Operational State
+At Gate
+In Yard
+Waiting for Dock
+Assigned Dock
+Delayed
+```
+
+---
+
+# Relationship with Dock Schedule
+
+The WMS feed shows current dock assignment and capacity.
+
+For planned time-window scheduling, use:
+
+```http
+GET /dashboard/dock-schedule
+```
+
+or:
+
+```http
+GET /dock-operations/schedule
+```
+
+---
+
+# Frontend Live-Tracking Integration
+
+For normal automatic simulation:
 
 ```text
 Shipment Detail
       ↓
 POST /simulation/start/{delivery_id}
       ↓
-Simulation starts
+Background movement
       ↓
-Backend moves shipment automatically
+Frontend polls
+      │
+      ├── /dashboard/live-shipments
+      ├── /dashboard/yard-status
+      └── /simulation/wms-feed
       ↓
-Frontend polls live shipment data
-      ↓
-Map marker changes position
+Update UI
 ```
-
-The frontend does **not** need:
-
-```text
-POST /simulation/step
-POST /simulation/step
-POST /simulation/step
-...
-```
-
-for normal automatic movement.
 
 ---
 
-# Reading Live Position
+# Reading Current Position
 
-For current shipment information, the frontend can use current Delivery data or:
+For current shipment information, use:
 
 ```http
 GET /dashboard/live-shipments
 ```
 
-Conceptually:
+or shipment-specific Tracking/Delivery endpoints.
 
-```text
-Background Simulator
-        ↓
-Updates Delivery
-        ↓
-GET /dashboard/live-shipments
-        ↓
-Frontend
-        ↓
-Update Map
-```
-
-Since the project currently does not use WebSockets, the frontend can periodically poll the relevant GET endpoint.
+The WMS feed can also provide current GPS fields when available.
 
 ---
 
 # Shipment History
 
-For historical shipment events:
+For historical events use:
 
 ```http
 GET /tracking/{delivery_id}/events
 ```
 
-should be used.
-
 Remember:
 
 ```text
-Live Current Position
-        ≠
-Tracking Event History
+Current Position
+      ≠
+Tracking History
 ```
 
-The background simulator updates current Delivery state but does not create a TrackingEvent for every automatic GPS movement.
+The background loop updates current Delivery state but does not create a new TrackingEvent for every automatic GPS movement.
 
 ---
 
 # Cross-Team Integration
 
-Another frontend or backend does not need to reproduce the simulation algorithm.
+Another team does not need to reproduce simulation logic.
 
-It only needs to:
+It can simply:
 
 ```text
-1. Know delivery_id
+1. Obtain delivery_id
 
 2. POST /simulation/start/{delivery_id}
 
-3. Read updated shipment state
+3. Poll:
+   /simulation/wms-feed
+   or
+   /dashboard/live-shipments
 
-4. POST /simulation/stop/{delivery_id}
-   when required
+4. Stop with:
+   POST /simulation/stop/{delivery_id}
 ```
 
-The movement, distance and simulation ETA calculations remain inside E2.
+All movement, distance, and simulation ETA calculations stay inside E2.
 
 ---
 
@@ -561,14 +896,15 @@ The movement, distance and simulation ETA calculations remain inside E2.
 
 Integrating applications should handle:
 
-| HTTP Status | Meaning                                                       |
-| ----------: | ------------------------------------------------------------- |
-|       `200` | Simulation operation completed                                |
-|       `404` | Delivery does not exist                                       |
-|       `400` | Simulation operation cannot be performed in the current state |
-|       `422` | Invalid Delivery ID/path validation                           |
+| HTTP Status | Meaning |
+|---:|---|
+| `200` | Simulation/feed request completed |
+| `400` | Simulation operation invalid for current state |
+| `404` | Delivery not found |
+| `422` | Invalid Delivery ID/path validation |
+| `500` | Unexpected simulation/database failure |
 
-FastAPI HTTP errors use the normal form:
+FastAPI errors typically use:
 
 ```json
 {
@@ -582,10 +918,39 @@ FastAPI HTTP errors use the normal form:
 
 The current simulation system:
 
-* Uses simulated GPS rather than a real GPS/telematics provider
-* Uses HTTP polling rather than WebSockets
-* Does not create a TrackingEvent for every automatic background movement
-* Uses distance/speed-based ETA rather than the Random Forest model during movement
-* Requires simulation to be started before automatic simulated tracking occurs
+- uses simulated GPS instead of a real telematics provider;
+- uses HTTP polling instead of WebSockets;
+- does not create TrackingEvents for every background movement;
+- uses speed/distance ETA during simulation rather than calling Random Forest on every update;
+- requires simulation to be explicitly started;
+- exposes a simulated WMS feed rather than connecting to a real WMS;
+- does not yet publish events to Kafka/RabbitMQ;
+- does not provide production-grade telematics authentication.
 
-The simulation should therefore be treated as a **demo/testing implementation of live shipment movement**, while the Tracking and Delivery APIs provide the integration interface for consuming its results.
+---
+
+# Summary
+
+The Simulation module supports both shipment movement and external-style operational feed testing.
+
+```text
+Delivery
+   ↓
+GPS Simulation
+   ↓
+Current Position
+   ↓
+Distance + ETA
+   ↓
+Tracking / Dashboard
+
+and
+
+Deliveries + Docks
+        ↓
+GET /simulation/wms-feed
+        ↓
+Simulated WMS Integration
+```
+
+Use simulation endpoints for movement testing and `/simulation/wms-feed` for combined trailer/dock operational visibility.
