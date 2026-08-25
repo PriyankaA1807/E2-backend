@@ -1,12 +1,13 @@
+from datetime import datetime, timedelta
 import math
 import random
-from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Delivery, TrackingEvent
+from app.models import Delivery, TrackingEvent, YardDock
+from app.schemas import WMSFeedResponse
 
 
 router = APIRouter(
@@ -16,39 +17,74 @@ router = APIRouter(
 
 
 # ============================================================
-# DISTANCE CALCULATION
+# HELPER: HAVERSINE DISTANCE
 # ============================================================
 
-def calculate_distance_km(
-    lat1,
-    lon1,
-    lat2,
-    lon2
+def haversine_distance(
+    lat1: float,
+    lon1: float,
+    lat2: float,
+    lon2: float
+) -> float:
+    """
+    Calculate distance between two latitude/longitude points
+    in kilometers.
+    """
+
+    radius_earth_km = 6371.0
+
+    lat1_rad = math.radians(lat1)
+    lon1_rad = math.radians(lon1)
+    lat2_rad = math.radians(lat2)
+    lon2_rad = math.radians(lon2)
+
+    delta_lat = lat2_rad - lat1_rad
+    delta_lon = lon2_rad - lon1_rad
+
+    a = (
+        math.sin(delta_lat / 2) ** 2
+        + math.cos(lat1_rad)
+        * math.cos(lat2_rad)
+        * math.sin(delta_lon / 2) ** 2
+    )
+
+    c = 2 * math.atan2(
+        math.sqrt(a),
+        math.sqrt(1 - a)
+    )
+
+    return radius_earth_km * c
+
+
+# ============================================================
+# HELPER: MOVE POINT TOWARDS DESTINATION
+# ============================================================
+
+def move_towards_destination(
+    current_lat: float,
+    current_lon: float,
+    destination_lat: float,
+    destination_lon: float,
+    progress_ratio: float = 0.08
 ):
-    if None in (
-        lat1,
-        lon1,
-        lat2,
-        lon2
-    ):
-        return None
+    """
+    Move the simulated truck a fraction of the remaining
+    distance toward the destination.
+    """
 
-    lat_distance = (lat2 - lat1) * 111
+    new_lat = current_lat + (
+        destination_lat - current_lat
+    ) * progress_ratio
 
-    lon_distance = (
-        (lon2 - lon1)
-        * 111
-        * math.cos(math.radians(lat1))
-    )
+    new_lon = current_lon + (
+        destination_lon - current_lon
+    ) * progress_ratio
 
-    return math.sqrt(
-        lat_distance ** 2 +
-        lon_distance ** 2
-    )
+    return new_lat, new_lon
 
 
 # ============================================================
-# START SIMULATION
+# START GPS SIMULATION
 # ============================================================
 
 @router.post("/start/{delivery_id}")
@@ -56,7 +92,6 @@ def start_simulation(
     delivery_id: int,
     db: Session = Depends(get_db)
 ):
-
     delivery = db.query(Delivery).filter(
         Delivery.id == delivery_id
     ).first()
@@ -67,32 +102,103 @@ def start_simulation(
             detail="Delivery not found"
         )
 
-    # Default starting coordinates
-    if delivery.current_latitude is None:
-        delivery.current_latitude = 22.5726
-        delivery.current_longitude = 88.3639
+    if (
+        delivery.destination_latitude is None
+        or delivery.destination_longitude is None
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Destination coordinates are required"
+        )
 
-    # Default destination coordinates
-    if delivery.destination_latitude is None:
-        delivery.destination_latitude = 23.0225
-        delivery.destination_longitude = 72.5714
+    # If no current location exists, generate a simulated
+    # starting location.
+    if (
+        delivery.current_latitude is None
+        or delivery.current_longitude is None
+    ):
+        delivery.current_latitude = (
+            delivery.destination_latitude
+            + random.uniform(2.0, 8.0)
+        )
+
+        delivery.current_longitude = (
+            delivery.destination_longitude
+            + random.uniform(2.0, 8.0)
+        )
 
     delivery.simulation_active = True
-    delivery.status = "in_transit"
+
+    # Respect the trailer lifecycle.
+    if delivery.status == "scheduled":
+        delivery.status = "in_transit"
 
     delivery.last_gps_update = datetime.utcnow()
 
+    distance = haversine_distance(
+        delivery.current_latitude,
+        delivery.current_longitude,
+        delivery.destination_latitude,
+        delivery.destination_longitude
+    )
+
+    delivery.distance_remaining_km = distance
+
+    speed = (
+        delivery.average_speed_kmph
+        if delivery.average_speed_kmph
+        else 50
+    )
+
+    if speed > 0:
+        eta_minutes = (distance / speed) * 60
+    else:
+        eta_minutes = None
+
+    delivery.eta_minutes = eta_minutes
+
+    if eta_minutes is not None:
+        delivery.estimated_arrival = (
+            datetime.utcnow()
+            + timedelta(minutes=eta_minutes)
+        )
+
+    event = TrackingEvent(
+        delivery_id=delivery.id,
+        status=delivery.status,
+        location=(
+            f"{delivery.current_latitude:.5f}, "
+            f"{delivery.current_longitude:.5f}"
+        ),
+        latitude=delivery.current_latitude,
+        longitude=delivery.current_longitude,
+        event_time=datetime.utcnow(),
+        description="GPS simulation started"
+    )
+
+    db.add(event)
     db.commit()
+    db.refresh(delivery)
 
     return {
-        "message": "GPS simulation started",
-        "delivery_id": delivery_id,
-        "status": delivery.status
+        "message": "Simulation started",
+        "delivery_id": delivery.id,
+        "tracking_number": delivery.tracking_number,
+        "trailer_id": delivery.trailer_id,
+        "status": delivery.status,
+        "simulation_active": delivery.simulation_active,
+        "current_latitude": delivery.current_latitude,
+        "current_longitude": delivery.current_longitude,
+        "distance_remaining_km": (
+            delivery.distance_remaining_km
+        ),
+        "eta_minutes": delivery.eta_minutes,
+        "estimated_arrival": delivery.estimated_arrival
     }
 
 
 # ============================================================
-# SIMULATE ONE MOVEMENT STEP
+# SIMULATE ONE GPS STEP
 # ============================================================
 
 @router.post("/step/{delivery_id}")
@@ -100,7 +206,6 @@ def simulate_step(
     delivery_id: int,
     db: Session = Depends(get_db)
 ):
-
     delivery = db.query(Delivery).filter(
         Delivery.id == delivery_id
     ).first()
@@ -114,65 +219,86 @@ def simulate_step(
     if not delivery.simulation_active:
         raise HTTPException(
             status_code=400,
-            detail="Simulation is not active"
+            detail="Simulation is not active for this delivery"
         )
 
-    if delivery.current_latitude is None:
+    if (
+        delivery.current_latitude is None
+        or delivery.current_longitude is None
+        or delivery.destination_latitude is None
+        or delivery.destination_longitude is None
+    ):
         raise HTTPException(
             status_code=400,
-            detail="Current GPS coordinates are missing"
+            detail="Current and destination coordinates are required"
         )
 
-    if delivery.current_longitude is None:
-        raise HTTPException(
-            status_code=400,
-            detail="Current GPS longitude is missing"
-        )
-
-    if delivery.destination_latitude is None:
-        raise HTTPException(
-            status_code=400,
-            detail="Destination coordinates are missing"
-        )
-
-    if delivery.destination_longitude is None:
-        raise HTTPException(
-            status_code=400,
-            detail="Destination longitude is missing"
-        )
-
-    old_lat = delivery.current_latitude
-    old_lon = delivery.current_longitude
-
-    destination_lat = delivery.destination_latitude
-    destination_lon = delivery.destination_longitude
-
-    # ========================================================
-    # MOVE 5% TOWARD DESTINATION
-    # ========================================================
-
-    factor = 0.05
-
-    new_lat = old_lat + (
-        destination_lat - old_lat
-    ) * factor
-
-    new_lon = old_lon + (
-        destination_lon - old_lon
-    ) * factor
-
-    # ========================================================
-    # SMALL GPS VARIATION
-    # ========================================================
-
-    new_lat += random.uniform(
-        -0.001,
-        0.001
+    current_distance = haversine_distance(
+        delivery.current_latitude,
+        delivery.current_longitude,
+        delivery.destination_latitude,
+        delivery.destination_longitude
     )
 
-    new_lon += random.uniform(
-        -0.001,
-        0.001
+    # --------------------------------------------------------
+    # ARRIVAL CONDITION
+    # --------------------------------------------------------
+
+    if current_distance <= 2.0:
+        delivery.current_latitude = (
+            delivery.destination_latitude
+        )
+
+        delivery.current_longitude = (
+            delivery.destination_longitude
+        )
+
+        delivery.current_location = "Yard Gate"
+
+        delivery.distance_remaining_km = 0
+        delivery.eta_minutes = 0
+        delivery.estimated_arrival = datetime.utcnow()
+        delivery.actual_arrival = datetime.utcnow()
+
+        delivery.status = "arrived_at_gate"
+        delivery.simulation_active = False
+        delivery.last_gps_update = datetime.utcnow()
+
+        event = TrackingEvent(
+            delivery_id=delivery.id,
+            status="arrived_at_gate",
+            location="Yard Gate",
+            latitude=delivery.current_latitude,
+            longitude=delivery.current_longitude,
+            event_time=datetime.utcnow(),
+            description="Truck arrived at yard gate"
+        )
+
+        db.add(event)
+        db.commit()
+        db.refresh(delivery)
+
+        return {
+            "message": "Truck arrived at yard gate",
+            "delivery_id": delivery.id,
+            "status": delivery.status,
+            "simulation_active": False,
+            "current_latitude": delivery.current_latitude,
+            "current_longitude": delivery.current_longitude,
+            "distance_remaining_km": 0,
+            "eta_minutes": 0
+        }
+
+    # --------------------------------------------------------
+    # SIMULATE MOVEMENT
+    # --------------------------------------------------------
+
+    new_lat, new_lon = move_towards_destination(
+        delivery.current_latitude,
+        delivery.current_longitude,
+        delivery.destination_latitude,
+        delivery.destination_longitude,
+        progress_ratio=random.uniform(0.05, 0.12)
     )
 
     delivery.current_latitude = new_lat
@@ -182,75 +308,39 @@ def simulate_step(
         f"{new_lat:.5f}, {new_lon:.5f}"
     )
 
-    # ========================================================
-    # RANDOM SPEED
-    # ========================================================
-
-    delivery.average_speed_kmph = random.uniform(
-        35,
-        65
-    )
-
-    # ========================================================
-    # CALCULATE REMAINING DISTANCE
-    # ========================================================
-
-    distance = calculate_distance_km(
-        new_lat,
-        new_lon,
-        destination_lat,
-        destination_lon
-    )
-
-    delivery.distance_remaining_km = distance
-
-    # ========================================================
-    # ETA CALCULATION
-    # ========================================================
-
-    if distance is not None:
-
-        delivery.eta_minutes = (
-            distance /
-            delivery.average_speed_kmph
-        ) * 60
-
-        delivery.estimated_arrival = (
-            datetime.utcnow()
-            + timedelta(
-                minutes=delivery.eta_minutes
-            )
-        )
-
     delivery.last_gps_update = datetime.utcnow()
 
-    # ========================================================
-    # ARRIVAL DETECTION
-    # ========================================================
+    # Simulate changing road speed.
+    simulated_speed = random.uniform(
+        35.0,
+        70.0
+    )
 
-    if distance is not None and distance < 2:
+    delivery.average_speed_kmph = simulated_speed
 
-        delivery.status = "arrived"
+    remaining_distance = haversine_distance(
+        new_lat,
+        new_lon,
+        delivery.destination_latitude,
+        delivery.destination_longitude
+    )
 
-        delivery.simulation_active = False
+    delivery.distance_remaining_km = remaining_distance
 
-        delivery.actual_arrival = datetime.utcnow()
+    eta_minutes = (
+        remaining_distance
+        / simulated_speed
+    ) * 60
 
-        # IMPORTANT:
-        # Once arrived, there should be no remaining
-        # distance or remaining ETA.
+    delivery.eta_minutes = eta_minutes
 
-        delivery.distance_remaining_km = 0
+    delivery.estimated_arrival = (
+        datetime.utcnow()
+        + timedelta(minutes=eta_minutes)
+    )
 
-        delivery.eta_minutes = 0
-
-        delivery.estimated_arrival = (
-            delivery.actual_arrival
-        )
-
-    # ========================================================
-    # TRACKING EVENT
-    # ========================================================
+    if delivery.status == "scheduled":
+        delivery.status = "in_transit"
 
     event = TrackingEvent(
         delivery_id=delivery.id,
@@ -258,38 +348,41 @@ def simulate_step(
         location=delivery.current_location,
         latitude=new_lat,
         longitude=new_lon,
-        description="Simulated GPS movement"
+        event_time=datetime.utcnow(),
+        description="Simulated GPS location update"
     )
 
     db.add(event)
-
-    # ========================================================
-    # SAVE
-    # ========================================================
-
     db.commit()
-
     db.refresh(delivery)
 
-    # ========================================================
-    # RESPONSE
-    # ========================================================
-
     return {
+        "message": "Simulation step completed",
         "delivery_id": delivery.id,
-        "latitude": delivery.current_latitude,
-        "longitude": delivery.current_longitude,
-        "location": delivery.current_location,
-        "distance_remaining_km": delivery.distance_remaining_km,
-        "speed_kmph": delivery.average_speed_kmph,
+        "tracking_number": delivery.tracking_number,
+        "trailer_id": delivery.trailer_id,
+        "status": delivery.status,
+        "current_latitude": delivery.current_latitude,
+        "current_longitude": delivery.current_longitude,
+        "current_location": delivery.current_location,
+        "average_speed_kmph": (
+            delivery.average_speed_kmph
+        ),
+        "distance_remaining_km": (
+            delivery.distance_remaining_km
+        ),
         "eta_minutes": delivery.eta_minutes,
-        "estimated_arrival": delivery.estimated_arrival,
-        "status": delivery.status
+        "estimated_arrival": (
+            delivery.estimated_arrival
+        ),
+        "simulation_active": (
+            delivery.simulation_active
+        )
     }
 
 
 # ============================================================
-# STOP SIMULATION
+# STOP GPS SIMULATION
 # ============================================================
 
 @router.post("/stop/{delivery_id}")
@@ -297,7 +390,6 @@ def stop_simulation(
     delivery_id: int,
     db: Session = Depends(get_db)
 ):
-
     delivery = db.query(Delivery).filter(
         Delivery.id == delivery_id
     ).first()
@@ -310,9 +402,245 @@ def stop_simulation(
 
     delivery.simulation_active = False
 
+    event = TrackingEvent(
+        delivery_id=delivery.id,
+        status=delivery.status,
+        location=delivery.current_location,
+        latitude=delivery.current_latitude,
+        longitude=delivery.current_longitude,
+        event_time=datetime.utcnow(),
+        description="GPS simulation stopped"
+    )
+
+    db.add(event)
     db.commit()
+    db.refresh(delivery)
 
     return {
-        "message": "GPS simulation stopped",
-        "delivery_id": delivery_id
+        "message": "Simulation stopped",
+        "delivery_id": delivery.id,
+        "status": delivery.status,
+        "simulation_active": False
+    }
+
+
+# ============================================================
+# SIMULATED WMS FEED
+# ============================================================
+
+@router.get(
+    "/wms-feed",
+    response_model=WMSFeedResponse
+)
+def get_wms_feed(
+    db: Session = Depends(get_db)
+):
+    """
+    Simulated Warehouse Management System feed.
+
+    Returns current trailer/shipment information together
+    with yard and dock-door availability.
+    """
+
+    deliveries = db.query(Delivery).all()
+    docks = db.query(YardDock).all()
+
+    # --------------------------------------------------------
+    # TRAILER / SHIPMENT FEED
+    # --------------------------------------------------------
+
+    trailer_feed = []
+
+    for delivery in deliveries:
+
+        assigned_dock = None
+
+        if delivery.dock is not None:
+            assigned_dock = {
+                "dock_id": delivery.dock.id,
+                "dock_number": (
+                    delivery.dock.dock_number
+                ),
+                "yard_name": (
+                    delivery.dock.yard_name
+                ),
+                "status": delivery.dock.status,
+                "dock_type": (
+                    delivery.dock.dock_type
+                )
+            }
+
+        trailer_feed.append(
+            {
+                "delivery_id": delivery.id,
+
+                "tracking_number": (
+                    delivery.tracking_number
+                ),
+
+                "trailer_id": delivery.trailer_id,
+
+                "shipment_reference": (
+                    delivery.shipment_reference
+                ),
+
+                "carrier": delivery.carrier,
+
+                "trailer_status": delivery.status,
+
+                "yard_location": (
+                    delivery.current_location
+                ),
+
+                "scheduled_arrival": (
+                    delivery.scheduled_arrival
+                ),
+
+                "estimated_arrival": (
+                    delivery.estimated_arrival
+                ),
+
+                "actual_arrival": (
+                    delivery.actual_arrival
+                ),
+
+                "eta_minutes": (
+                    delivery.eta_minutes
+                ),
+
+                "current_latitude": (
+                    delivery.current_latitude
+                ),
+
+                "current_longitude": (
+                    delivery.current_longitude
+                ),
+
+                "distance_remaining_km": (
+                    delivery.distance_remaining_km
+                ),
+
+                "delay_detected": (
+                    delivery.delay_detected
+                ),
+
+                "exception_detected": (
+                    delivery.exception_detected
+                ),
+
+                "simulation_active": (
+                    delivery.simulation_active
+                ),
+
+                "assigned_dock": assigned_dock
+            }
+        )
+
+    # --------------------------------------------------------
+    # DOCK FEED
+    # --------------------------------------------------------
+
+    dock_feed = []
+
+    for dock in docks:
+        dock_feed.append(
+            {
+                "dock_id": dock.id,
+                "yard_name": dock.yard_name,
+                "dock_number": dock.dock_number,
+                "status": dock.status,
+                "dock_type": dock.dock_type,
+
+                "supported_vehicle_type": (
+                    getattr(
+                        dock,
+                        "supported_vehicle_type",
+                        None
+                    )
+                ),
+
+                "max_vehicle_length": (
+                    getattr(
+                        dock,
+                        "max_vehicle_length",
+                        None
+                    )
+                ),
+
+                "refrigerated": (
+                    getattr(
+                        dock,
+                        "refrigerated",
+                        None
+                    )
+                ),
+
+                "hazardous_allowed": (
+                    getattr(
+                        dock,
+                        "hazardous_allowed",
+                        None
+                    )
+                )
+            }
+        )
+
+    # --------------------------------------------------------
+    # SUMMARY
+    # --------------------------------------------------------
+
+    available_docks = sum(
+        1
+        for dock in docks
+        if (
+            dock.status
+            and dock.status.lower() == "available"
+        )
+    )
+
+    inactive_statuses = {
+        "completed",
+        "departed",
+        "cancelled"
+    }
+
+    active_shipments = sum(
+        1
+        for delivery in deliveries
+        if (
+            delivery.status
+            and delivery.status.lower()
+            not in inactive_statuses
+        )
+    )
+
+    delayed_shipments = sum(
+        1
+        for delivery in deliveries
+        if delivery.delay_detected
+    )
+
+    waiting_for_dock = sum(
+        1
+        for delivery in deliveries
+        if delivery.status == "waiting_for_dock"
+    )
+
+    return {
+        "feed_type": "SIMULATED_WMS",
+
+        "generated_at": datetime.utcnow(),
+
+        "summary": {
+            "total_trailers": len(deliveries),
+            "active_shipments": active_shipments,
+            "delayed_shipments": delayed_shipments,
+            "waiting_for_dock": waiting_for_dock,
+            "total_docks": len(docks),
+            "available_docks": available_docks
+        },
+
+        "trailers": trailer_feed,
+
+        "docks": dock_feed
     }

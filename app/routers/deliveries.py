@@ -15,6 +15,68 @@ router = APIRouter(
 
 
 # ============================================================
+# DELIVERY / TRAILER STATUS FLOW
+# ============================================================
+
+ALLOWED_TRANSITIONS = {
+    "scheduled": {
+        "in_transit",
+        "cancelled"
+    },
+
+    "in_transit": {
+        "delayed",
+        "arrived_at_gate",
+        "cancelled"
+    },
+
+    # A delayed truck can recover and continue travelling,
+    # or it may eventually reach the yard.
+    "delayed": {
+        "in_transit",
+        "arrived_at_gate",
+        "cancelled"
+    },
+
+    "arrived_at_gate": {
+        "in_yard"
+    },
+
+    "in_yard": {
+        "waiting_for_dock"
+    },
+
+    "waiting_for_dock": {
+        "dock_assigned"
+    },
+
+    "dock_assigned": {
+        "docked",
+        "waiting_for_dock"
+    },
+
+    "docked": {
+        "unloading"
+    },
+
+    "unloading": {
+        "completed"
+    },
+
+    "completed": {
+        "departed"
+    },
+
+    "departed": set(),
+
+    "cancelled": set()
+}
+
+
+VALID_STATUSES = set(ALLOWED_TRANSITIONS.keys())
+
+
+# ============================================================
 # CREATE DELIVERY / SHIPMENT
 # ============================================================
 
@@ -28,6 +90,10 @@ def create_delivery(
     db: Session = Depends(get_db)
 ):
 
+    # --------------------------------------------------------
+    # Check Restock Order
+    # --------------------------------------------------------
+
     order = db.query(RestockOrder).filter(
         RestockOrder.id == delivery_data.restock_order_id
     ).first()
@@ -37,6 +103,10 @@ def create_delivery(
             status_code=404,
             detail="Restock order not found"
         )
+
+    # --------------------------------------------------------
+    # Check Dock
+    # --------------------------------------------------------
 
     if delivery_data.dock_id is not None:
 
@@ -49,6 +119,10 @@ def create_delivery(
                 status_code=404,
                 detail="Yard dock not found"
             )
+
+    # --------------------------------------------------------
+    # Check Tracking Number Uniqueness
+    # --------------------------------------------------------
 
     if delivery_data.tracking_number:
 
@@ -63,6 +137,73 @@ def create_delivery(
                 detail="Tracking number already exists"
             )
 
+    # --------------------------------------------------------
+    # Check Trailer ID Uniqueness
+    # --------------------------------------------------------
+
+    if delivery_data.trailer_id:
+
+        existing_trailer = db.query(Delivery).filter(
+            Delivery.trailer_id == delivery_data.trailer_id
+        ).first()
+
+        if existing_trailer:
+            raise HTTPException(
+                status_code=400,
+                detail="Trailer ID already exists"
+            )
+
+    # --------------------------------------------------------
+    # Check Shipment Reference Uniqueness
+    # --------------------------------------------------------
+
+    if delivery_data.shipment_reference:
+
+        existing_reference = db.query(Delivery).filter(
+            Delivery.shipment_reference ==
+            delivery_data.shipment_reference
+        ).first()
+
+        if existing_reference:
+            raise HTTPException(
+                status_code=400,
+                detail="Shipment reference already exists"
+            )
+
+    # --------------------------------------------------------
+    # Validate Initial Status
+    # --------------------------------------------------------
+
+    normalized_status = (
+        delivery_data.status.lower().strip()
+        if delivery_data.status
+        else "scheduled"
+    )
+
+    if normalized_status not in VALID_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "Invalid initial delivery status",
+                "allowed_statuses": sorted(VALID_STATUSES)
+            }
+        )
+
+    # New deliveries should normally start as scheduled.
+    if normalized_status != "scheduled":
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": (
+                    "A new delivery must start with status 'scheduled'"
+                )
+            }
+        )
+
+    # --------------------------------------------------------
+    # Create Delivery
+    # --------------------------------------------------------
+
     delivery = Delivery(
         restock_order_id=delivery_data.restock_order_id,
         dock_id=delivery_data.dock_id,
@@ -70,18 +211,25 @@ def create_delivery(
         trailer_id=delivery_data.trailer_id,
         shipment_reference=delivery_data.shipment_reference,
         carrier=delivery_data.carrier,
-        status=delivery_data.status,
+
+        status=normalized_status,
+
         scheduled_arrival=delivery_data.scheduled_arrival,
         actual_arrival=delivery_data.actual_arrival,
+
         current_latitude=delivery_data.current_latitude,
         current_longitude=delivery_data.current_longitude,
         current_location=delivery_data.current_location,
+
         destination_latitude=delivery_data.destination_latitude,
         destination_longitude=delivery_data.destination_longitude,
+
         estimated_arrival=delivery_data.estimated_arrival,
         eta_minutes=delivery_data.eta_minutes,
+
         average_speed_kmph=delivery_data.average_speed_kmph,
         distance_remaining_km=delivery_data.distance_remaining_km,
+
         simulation_active=delivery_data.simulation_active
     )
 
@@ -103,6 +251,7 @@ def create_delivery(
 def get_deliveries(
     db: Session = Depends(get_db)
 ):
+
     return db.query(Delivery).all()
 
 
@@ -133,7 +282,7 @@ def get_delivery(
 
 
 # ============================================================
-# GET BY TRACKING NUMBER
+# GET DELIVERY BY TRACKING NUMBER
 # ============================================================
 
 @router.get(
@@ -159,7 +308,7 @@ def get_delivery_by_tracking_number(
 
 
 # ============================================================
-# UPDATE STATUS
+# UPDATE DELIVERY / TRAILER STATUS
 # ============================================================
 
 @router.put(
@@ -182,33 +331,101 @@ def update_delivery_status(
             detail="Delivery not found"
         )
 
-    allowed_statuses = {
-        "scheduled",
-        "in_transit",
-        "delayed",
-        "arrived",
-        "unloading",
-        "delivered",
-        "cancelled"
-    }
+    new_status = status.lower().strip()
 
-    normalized_status = status.lower().strip()
+    # --------------------------------------------------------
+    # Validate requested status
+    # --------------------------------------------------------
 
-    if normalized_status not in allowed_statuses:
+    if new_status not in VALID_STATUSES:
         raise HTTPException(
             status_code=400,
             detail={
                 "message": "Invalid delivery status",
-                "allowed_statuses": sorted(allowed_statuses)
+                "allowed_statuses": sorted(VALID_STATUSES)
             }
         )
 
-    delivery.status = normalized_status
+    current_status = (
+        delivery.status.lower().strip()
+        if delivery.status
+        else "scheduled"
+    )
 
-    if normalized_status in {"arrived", "delivered"}:
+    # --------------------------------------------------------
+    # Same status — no change required
+    # --------------------------------------------------------
+
+    if current_status == new_status:
+        return delivery
+
+    # --------------------------------------------------------
+    # Handle old status values
+    # --------------------------------------------------------
+
+    legacy_status_map = {
+        "arrived": "arrived_at_gate",
+        "delivered": "completed"
+    }
+
+    current_status = legacy_status_map.get(
+        current_status,
+        current_status
+    )
+
+    # --------------------------------------------------------
+    # Make sure current status is recognized
+    # --------------------------------------------------------
+
+    if current_status not in ALLOWED_TRANSITIONS:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": (
+                    f"Current delivery status '{delivery.status}' "
+                    "is not part of the supported lifecycle"
+                )
+            }
+        )
+
+    # --------------------------------------------------------
+    # Validate lifecycle transition
+    # --------------------------------------------------------
+
+    allowed_next_statuses = ALLOWED_TRANSITIONS[current_status]
+
+    if new_status not in allowed_next_statuses:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "Invalid delivery status transition",
+                "current_status": current_status,
+                "requested_status": new_status,
+                "allowed_next_statuses": sorted(
+                    allowed_next_statuses
+                )
+            }
+        )
+
+    # --------------------------------------------------------
+    # Update status
+    # --------------------------------------------------------
+
+    delivery.status = new_status
+
+    # Truck has reached the facility.
+    if new_status == "arrived_at_gate":
 
         if delivery.actual_arrival is None:
             delivery.actual_arrival = datetime.utcnow()
+
+    # Once completed/departed, simulation should stop.
+    if new_status in {
+        "completed",
+        "departed",
+        "cancelled"
+    }:
+        delivery.simulation_active = False
 
     db.commit()
     db.refresh(delivery)

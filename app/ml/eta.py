@@ -1,6 +1,13 @@
 import os
-import joblib
 from datetime import datetime, timedelta
+
+import joblib
+import pandas as pd
+
+
+# ============================================================
+# MODEL PATH
+# ============================================================
 
 MODEL_PATH = os.path.join(
     os.path.dirname(__file__),
@@ -8,8 +15,29 @@ MODEL_PATH = os.path.join(
     "eta_model.pkl"
 )
 
+
+# ============================================================
+# LOAD MODEL ONCE
+# ============================================================
+
 model = joblib.load(MODEL_PATH)
 
+
+# ============================================================
+# MODEL FEATURE ORDER
+# ============================================================
+
+MODEL_FEATURES = [
+    "distance_km",
+    "quantity",
+    "supplier_delay_history",
+    "carrier_delay_history"
+]
+
+
+# ============================================================
+# ETA PREDICTION
+# ============================================================
 
 def predict_eta(
     distance_km: float,
@@ -18,35 +46,83 @@ def predict_eta(
     carrier_delay_history: float
 ):
     """
-    Predict delivery time in hours.
+    Predict delivery duration using the trained
+    RandomForestRegressor.
 
-    distance_km:
-        Distance between supplier and destination.
-
-    quantity:
-        Quantity of products being delivered.
-
-    supplier_delay_history:
-        Historical delay value for the supplier.
-
-    carrier_delay_history:
-        Historical delay value for the carrier.
+    Returns:
+    - estimated delivery hours
+    - estimated delivery minutes
+    - estimated arrival timestamp
     """
 
-    prediction = model.predict([
+    # --------------------------------------------------------
+    # Validate inputs
+    # --------------------------------------------------------
+
+    if distance_km < 0:
+        raise ValueError(
+            "distance_km cannot be negative"
+        )
+
+    if quantity <= 0:
+        raise ValueError(
+            "quantity must be greater than zero"
+        )
+
+    # --------------------------------------------------------
+    # Build dataframe using the exact model feature names
+    # --------------------------------------------------------
+
+    features = pd.DataFrame(
         [
-            distance_km,
-            quantity,
-            supplier_delay_history,
-            carrier_delay_history
-        ]
-    ])
+            {
+                "distance_km": distance_km,
+                "quantity": quantity,
+                "supplier_delay_history":
+                    supplier_delay_history,
+                "carrier_delay_history":
+                    carrier_delay_history
+            }
+        ],
+        columns=MODEL_FEATURES
+    )
 
-    delivery_hours = float(prediction[0])
+    # --------------------------------------------------------
+    # Predict
+    # --------------------------------------------------------
 
-    eta = datetime.utcnow() + timedelta(hours=delivery_hours)
+    prediction = model.predict(
+        features
+    )
+
+    delivery_hours = max(
+        0.0,
+        float(prediction[0])
+    )
+
+    delivery_minutes = (
+        delivery_hours * 60
+    )
+
+    estimated_arrival = (
+        datetime.utcnow()
+        + timedelta(
+            hours=delivery_hours
+        )
+    )
 
     return {
-        "estimated_delivery_hours": round(delivery_hours, 2),
-        "estimated_arrival": eta
+        "estimated_delivery_hours": round(
+            delivery_hours,
+            2
+        ),
+
+        "estimated_delivery_minutes": round(
+            delivery_minutes,
+            2
+        ),
+
+        "estimated_arrival": (
+            estimated_arrival
+        )
     }

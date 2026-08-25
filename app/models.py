@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from sqlalchemy import (
     Column,
     Integer,
@@ -8,8 +10,8 @@ from sqlalchemy import (
     Text,
     Boolean,
 )
+
 from sqlalchemy.orm import relationship
-from datetime import datetime
 
 from app.database import Base
 
@@ -21,12 +23,32 @@ from app.database import Base
 class Supplier(Base):
     __tablename__ = "suppliers"
 
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(150), nullable=False)
-    contact_person = Column(String(100))
-    email = Column(String(150))
-    phone = Column(String(30))
-    address = Column(Text)
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True
+    )
+
+    name = Column(
+        String(150),
+        nullable=False
+    )
+
+    contact_person = Column(
+        String(100)
+    )
+
+    email = Column(
+        String(150)
+    )
+
+    phone = Column(
+        String(30)
+    )
+
+    address = Column(
+        Text
+    )
 
     restock_orders = relationship(
         "RestockOrder",
@@ -41,7 +63,11 @@ class Supplier(Base):
 class Product(Base):
     __tablename__ = "products"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True
+    )
 
     sku = Column(
         String(100),
@@ -55,9 +81,13 @@ class Product(Base):
         nullable=False
     )
 
-    category = Column(String(100))
+    category = Column(
+        String(100)
+    )
 
-    unit_price = Column(Float)
+    unit_price = Column(
+        Float
+    )
 
     reorder_level = Column(
         Integer,
@@ -207,7 +237,6 @@ class YardDock(Base):
         default="available"
     )
 
-    # Dock compatibility
     dock_type = Column(
         String(50),
         default="standard"
@@ -264,7 +293,10 @@ class Delivery(Base):
         nullable=True
     )
 
-    # Shipment identification
+    # --------------------------------------------------------
+    # SHIPMENT IDENTIFICATION
+    # --------------------------------------------------------
+
     tracking_number = Column(
         String(150),
         unique=True,
@@ -285,13 +317,19 @@ class Delivery(Base):
         String(100)
     )
 
-    # Delivery status
+    # --------------------------------------------------------
+    # DELIVERY STATUS
+    # --------------------------------------------------------
+
     status = Column(
         String(50),
         default="scheduled"
     )
 
-    # Arrival information
+    # --------------------------------------------------------
+    # ARRIVAL INFORMATION
+    # --------------------------------------------------------
+
     scheduled_arrival = Column(
         DateTime
     )
@@ -300,9 +338,9 @@ class Delivery(Base):
         DateTime
     )
 
-    # ========================================================
+    # --------------------------------------------------------
     # GPS / MOVEMENT
-    # ========================================================
+    # --------------------------------------------------------
 
     current_latitude = Column(
         Float
@@ -324,7 +362,10 @@ class Delivery(Base):
         Float
     )
 
-    # Estimated arrival
+    # --------------------------------------------------------
+    # ETA
+    # --------------------------------------------------------
+
     estimated_arrival = Column(
         DateTime
     )
@@ -342,7 +383,10 @@ class Delivery(Base):
         Float
     )
 
-    # Simulation
+    # --------------------------------------------------------
+    # SIMULATION
+    # --------------------------------------------------------
+
     simulation_active = Column(
         Boolean,
         default=False
@@ -352,7 +396,10 @@ class Delivery(Base):
         DateTime
     )
 
-    # Operational flags
+    # --------------------------------------------------------
+    # OPERATIONAL FLAGS
+    # --------------------------------------------------------
+
     delay_detected = Column(
         Boolean,
         default=False
@@ -362,6 +409,10 @@ class Delivery(Base):
         Boolean,
         default=False
     )
+
+    # --------------------------------------------------------
+    # RELATIONSHIPS
+    # --------------------------------------------------------
 
     restock_order = relationship(
         "RestockOrder",
@@ -383,6 +434,13 @@ class Delivery(Base):
     alerts = relationship(
         "Alert",
         back_populates="delivery",
+        cascade="all, delete-orphan"
+    )
+
+    shipment_integration = relationship(
+        "ShipmentIntegration",
+        back_populates="delivery",
+        uselist=False,
         cascade="all, delete-orphan"
     )
 
@@ -492,4 +550,53 @@ class Alert(Base):
     delivery = relationship(
         "Delivery",
         back_populates="alerts"
+    )
+
+
+# ============================================================
+# SHIPMENT INTEGRATION
+# ============================================================
+
+class ShipmentIntegration(Base):
+    __tablename__ = "shipment_integrations"
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True
+    )
+
+    # PR2 order/shipment identifier
+    external_order_id = Column(
+        String(150),
+        unique=True,
+        nullable=False,
+        index=True
+    )
+
+    # E2 delivery created for this PR2 order
+    delivery_id = Column(
+        Integer,
+        ForeignKey("deliveries.id"),
+        nullable=False,
+        unique=True,
+        index=True
+    )
+
+    # Allows other systems to use the same integration later
+    source_system = Column(
+        String(50),
+        nullable=False,
+        default="PR2"
+    )
+
+    created_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        nullable=False
+    )
+
+    delivery = relationship(
+        "Delivery",
+        back_populates="shipment_integration"
     )

@@ -30,7 +30,6 @@ def get_shipment_by_tracking_number(
     tracking_number: str,
     db: Session = Depends(get_db)
 ):
-
     shipment = db.query(Delivery).filter(
         Delivery.tracking_number == tracking_number
     ).first()
@@ -56,7 +55,6 @@ def get_shipment_by_id(
     delivery_id: int,
     db: Session = Depends(get_db)
 ):
-
     shipment = db.query(Delivery).filter(
         Delivery.id == delivery_id
     ).first()
@@ -65,6 +63,56 @@ def get_shipment_by_id(
         raise HTTPException(
             status_code=404,
             detail="Shipment not found"
+        )
+
+    return shipment
+
+
+# ============================================================
+# GET SHIPMENT BY TRAILER ID
+# ============================================================
+
+@router.get(
+    "/trailer/{trailer_id}",
+    response_model=DeliveryResponse
+)
+def get_shipment_by_trailer_id(
+    trailer_id: str,
+    db: Session = Depends(get_db)
+):
+    shipment = db.query(Delivery).filter(
+        Delivery.trailer_id == trailer_id
+    ).first()
+
+    if not shipment:
+        raise HTTPException(
+            status_code=404,
+            detail="Shipment with this trailer ID was not found"
+        )
+
+    return shipment
+
+
+# ============================================================
+# GET SHIPMENT BY SHIPMENT REFERENCE
+# ============================================================
+
+@router.get(
+    "/reference/{shipment_reference}",
+    response_model=DeliveryResponse
+)
+def get_shipment_by_reference(
+    shipment_reference: str,
+    db: Session = Depends(get_db)
+):
+    shipment = db.query(Delivery).filter(
+        Delivery.shipment_reference == shipment_reference
+    ).first()
+
+    if not shipment:
+        raise HTTPException(
+            status_code=404,
+            detail="Shipment with this reference was not found"
         )
 
     return shipment
@@ -84,7 +132,6 @@ def add_tracking_event(
     event_data: TrackingEventCreate,
     db: Session = Depends(get_db)
 ):
-
     delivery = db.query(Delivery).filter(
         Delivery.id == delivery_id
     ).first()
@@ -139,7 +186,6 @@ def get_tracking_history(
     delivery_id: int,
     db: Session = Depends(get_db)
 ):
-
     delivery = db.query(Delivery).filter(
         Delivery.id == delivery_id
     ).first()
@@ -168,7 +214,6 @@ def get_tracking_history(
 def get_active_shipments(
     db: Session = Depends(get_db)
 ):
-
     active_statuses = [
         "scheduled",
         "in_transit",
