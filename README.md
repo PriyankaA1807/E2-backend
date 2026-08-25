@@ -8,6 +8,8 @@ The system connects procurement and restocking workflows with shipment execution
 
 E2 can also receive shipment information from another backend system such as **PR2** through a dedicated integration API.
 
+The backend is deployed on **Render** and uses a managed **PostgreSQL database**.
+
 ---
 
 # Table of Contents
@@ -53,7 +55,9 @@ E2 can also receive shipment information from another backend system such as **P
 39. Design Decisions
 40. Current Limitations
 41. Future Improvements
-42. Project Status
+42. Deployment
+43. Project Status
+44. Repository
 
 ---
 
@@ -65,31 +69,31 @@ Instead of limiting the system to inventory CRUD operations, E2 connects procure
 
 ```text
 Inventory
-    ↓
+   ↓
 Restock Requirement
-    ↓
+   ↓
 Supplier / Restock Order
-    ↓
+   ↓
 Shipment / Delivery
-    ↓
+   ↓
 Shipment Tracking
-    ↓
+   ↓
 GPS / ETA Monitoring
-    ↓
+   ↓
 Delay & Exception Detection
-    ↓
+   ↓
 Yard Arrival
-    ↓
+   ↓
 Dock Recommendation
-    ↓
+   ↓
 Dock Scheduling
-    ↓
+   ↓
 Trailer-Door Allocation
-    ↓
+   ↓
 Dock Assignment / Reassignment
-    ↓
+   ↓
 Arrival / Unloading
-    ↓
+   ↓
 Operational Dashboard
 ```
 
@@ -107,7 +111,7 @@ Restock Order + Delivery
 E2 Logistics Workflow
 ```
 
-The backend exposes REST APIs that can be consumed by web applications, mobile applications, dashboards, or other backend services.
+The backend exposes REST APIs that can be consumed by web applications, mobile applications, dashboards, and other backend services.
 
 ---
 
@@ -197,7 +201,7 @@ The backend can:
 - evaluate trailer-door allocation;
 - recommend reassignment when an assigned dock becomes unsuitable;
 - expose operational dashboard information;
-- and automatically process simulated shipment movement.
+- automatically process simulated shipment movement.
 
 ---
 
@@ -323,6 +327,8 @@ The backend can:
 | Model Serialization | Joblib |
 | API Documentation | OpenAPI / Swagger |
 | Configuration | Environment Variables / `.env` |
+| Deployment | Render |
+| Production Database | Render PostgreSQL |
 | Version Control | Git / GitHub |
 
 ---
@@ -330,58 +336,79 @@ The backend can:
 # 6. System Architecture
 
 ```text
-                      ┌─────────────────────┐
-                      │      Frontend       │
-                      └──────────┬──────────┘
-                                 │
-                              REST/JSON
-                                 │
-                      ┌──────────▼──────────┐
-                      │      FastAPI        │
-                      │    Application      │
-                      └──────────┬──────────┘
-                                 │
-       ┌─────────────────────────┼──────────────────────────┐
-       │                         │                          │
-       ▼                         ▼                          ▼
-┌──────────────┐        ┌─────────────────┐       ┌─────────────────┐
-│ Inventory &  │        │ Logistics &     │       │ Yard / Dock     │
-│ Procurement  │        │ Tracking        │       │ Operations      │
-└──────┬───────┘        └────────┬────────┘       └────────┬────────┘
-       │                         │                          │
-       └─────────────────────────┼──────────────────────────┘
-                                 │
-                       ┌─────────▼─────────┐
-                       │    SQLAlchemy     │
-                       └─────────┬─────────┘
-                                 │
-                       ┌─────────▼─────────┐
-                       │    PostgreSQL     │
-                       └───────────────────┘
+                    ┌─────────────────────┐
+                    │      Frontend       │
+                    └──────────┬──────────┘
+                               │
+                           REST / JSON
+                               │
+                    ┌──────────▼──────────┐
+                    │      FastAPI        │
+                    │    Application      │
+                    └──────────┬──────────┘
+                               │
+       ┌───────────────────────┼───────────────────────┐
+       │                       │                       │
+       ▼                       ▼                       ▼
+┌──────────────┐      ┌─────────────────┐     ┌─────────────────┐
+│ Inventory &  │      │ Logistics &     │     │ Yard / Dock     │
+│ Procurement  │      │ Tracking        │     │ Operations      │
+└──────┬───────┘      └────────┬────────┘     └────────┬────────┘
+       │                       │                       │
+       └───────────────────────┼───────────────────────┘
+                               │
+                    ┌──────────▼──────────┐
+                    │     SQLAlchemy      │
+                    └──────────┬──────────┘
+                               │
+                    ┌──────────▼──────────┐
+                    │     PostgreSQL      │
+                    └─────────────────────┘
+```
 
+External system integration:
 
+```text
 External Backend / PR2
           │
-          │ POST /integrations/shipments
+          │ HTTP / JSON
           ▼
-┌───────────────────────┐
-│ Integration API       │
-└──────────┬────────────┘
-           │
-           ├── ShipmentIntegration
-           ├── RestockOrder
-           └── Delivery
+┌─────────────────────────┐
+│ POST                    │
+│ /integrations/shipments │
+└────────────┬────────────┘
+             │
+             ├── ShipmentIntegration
+             ├── RestockOrder
+             └── Delivery
+```
 
+Additional processing:
 
-                       ┌───────────────────┐
-                       │    ML / ETA       │
-                       │  Random Forest    │
-                       └───────────────────┘
+```text
+┌─────────────────────┐
+│ ML / ETA            │
+│ Random Forest       │
+└─────────────────────┘
 
-                       ┌───────────────────┐
-                       │ Background        │
-                       │ Tracking Loop     │
-                       └───────────────────┘
+┌─────────────────────┐
+│ Background Tracking │
+│ Loop                │
+└─────────────────────┘
+```
+
+Production architecture:
+
+```text
+GitHub Repository
+        ↓
+Render Web Service
+        ↓
+FastAPI + Uvicorn
+        ↓
+SQLAlchemy
+        ↓
+Render PostgreSQL
 ```
 
 ---
@@ -461,7 +488,7 @@ Estimated Arrival
 
 ## Step 9 — Delay / Exception Detection
 
-Shipment state is continuously evaluated for delays or abnormal operational conditions.
+Shipment state is evaluated for delays or abnormal operational conditions.
 
 ## Step 10 — Yard Arrival
 
@@ -525,6 +552,7 @@ E2-backend/
 │       └── saved_models/
 │           └── eta_model.pkl
 │
+├── api-docs/
 ├── requirements.txt
 ├── README.md
 ├── .gitignore
@@ -564,7 +592,6 @@ Delivery ───────── YardDock
    │
    └──────────────► Alert
 
-
 External System
       │
       ▼
@@ -578,7 +605,7 @@ RestockOrder / Delivery
 
 The `shipment_integrations` table stores information received from external systems.
 
-Its purpose is to maintain a separation between external procurement systems and E2's internal logistics database.
+Its purpose is to maintain separation between external procurement systems and E2's internal logistics database.
 
 This allows PR2 and E2 to maintain separate databases while communicating through REST APIs.
 
@@ -764,6 +791,12 @@ POST /integrations/shipments
 
 This is the primary **PR2 → E2 integration endpoint**.
 
+Production endpoint:
+
+```text
+https://e2-backend.onrender.com/integrations/shipments
+```
+
 Example request:
 
 ```json
@@ -781,30 +814,13 @@ Example request:
 }
 ```
 
-Example successful response:
-
-```json
-{
-  "message": "Shipment imported successfully into E2",
-  "integration_id": 1,
-  "delivery_id": 4,
-  "restock_order_id": 3,
-  "external_order_id": "PO-PR2-TEST-001",
-  "tracking_number": "TRK-PR2-TEST-001",
-  "trailer_id": "TRL-PR2-001",
-  "shipment_reference": "SHIP-PR2-001",
-  "status": "scheduled",
-  "source_system": "PR2"
-}
-```
-
 Successful creation returns:
 
 ```http
 201 Created
 ```
 
-The imported shipment then becomes a normal E2 delivery and can use the rest of the E2 functionality.
+The imported shipment becomes a normal E2 delivery and can use the rest of the E2 functionality.
 
 ```text
 PR2
@@ -841,18 +857,6 @@ E2 supports multiple shipment identifiers.
 | POST | `/tracking/{delivery_id}/events` | Add tracking event |
 | GET | `/tracking/{delivery_id}/events` | Tracking history |
 | GET | `/tracking/active` | Active shipments |
-
-Example:
-
-```http
-GET /tracking/trailer/TRL-PR2-001
-```
-
-or:
-
-```http
-GET /tracking/reference/SHIP-PR2-001
-```
 
 Example tracking event:
 
@@ -891,7 +895,7 @@ Example:
 POST /eta/predict-delivery/2?supplier_delay_history=0&carrier_delay_history=0&delay_threshold_minutes=15
 ```
 
-The ML prediction uses inputs such as:
+The ML prediction uses:
 
 ```text
 Distance Remaining
@@ -940,24 +944,6 @@ Predicted Delay
 Delay Flag / Alert
 ```
 
-Example response structure:
-
-```json
-{
-  "delivery_id": 2,
-  "model": "RandomForestRegressor",
-  "prediction": {
-    "estimated_delivery_hours": 29.47,
-    "estimated_delivery_minutes": 1768.39
-  },
-  "delay": {
-    "delay_detected": true,
-    "alert_created": false,
-    "current_status": "delayed"
-  }
-}
-```
-
 ---
 
 # 21. GPS Simulation
@@ -981,7 +967,7 @@ Estimated Arrival
 Shipment Status
 ```
 
-This provides realistic logistics demonstrations without requiring external GPS hardware.
+This provides logistics demonstrations without requiring external GPS hardware.
 
 ---
 
@@ -993,7 +979,7 @@ POST /dock-recommendation/
 
 The recommendation engine evaluates dock candidates based on operational conditions.
 
-Example input:
+Example:
 
 ```json
 {
@@ -1050,7 +1036,7 @@ Delay Detected?
                     ↓
               Update Delivery
                     ↓
-               Create Alert
+                Create Alert
 ```
 
 ---
@@ -1065,7 +1051,7 @@ Exception monitoring identifies abnormal shipment conditions.
 
 Examples include missing GPS information while shipment tracking or simulation is expected to be active.
 
-E2 therefore distinguishes between:
+E2 distinguishes between:
 
 ```text
 Business / Schedule Delay
@@ -1102,8 +1088,6 @@ Example:
 ---
 
 # 27. Dashboard
-
-The dashboard exposes aggregated operational information.
 
 Core endpoints include:
 
@@ -1174,8 +1158,6 @@ Exception Flag
 Assigned Dock
 ```
 
-This endpoint is intended for a frontend yard-management screen.
-
 ---
 
 # 29. Dock Scheduling
@@ -1204,7 +1186,7 @@ Waiting Time
 Operational Priority
 ```
 
-Example scheduling logic:
+Flow:
 
 ```text
 Incoming Trailer
@@ -1223,20 +1205,6 @@ Select Best Dock
        ↓
 Create 30-Minute Window
 ```
-
-The response separates:
-
-```text
-schedule
-```
-
-and:
-
-```text
-unscheduled
-```
-
-trailers.
 
 ---
 
@@ -1257,36 +1225,18 @@ Needs reassignment
 Cannot currently be scheduled
 ```
 
-Possible allocation states include:
+Possible states include:
 
 ```text
 CURRENT_ASSIGNMENT_VALID
 REASSIGNMENT_RECOMMENDED
 ```
 
-Example scenario:
-
-```text
-Trailer
-   ↓
-Current Dock = Blocked
-   ↓
-Dock Scheduler
-   ↓
-Alternative Dock Available
-   ↓
-REASSIGNMENT_RECOMMENDED
-```
-
-This is particularly useful when operational conditions change after a dock was originally assigned.
-
 ---
 
 # 31. Background Processing
 
 E2 contains an asynchronous background tracking loop.
-
-When shipment simulation is active:
 
 ```text
 Find Active Simulations
@@ -1362,23 +1312,15 @@ pip install -r requirements.txt
 
 # 33. Environment Configuration
 
-Create:
-
-```text
-.env
-```
-
-in the project root.
-
-Configure the PostgreSQL connection used by the application.
-
-Example:
+Create a `.env` file in the project root for local development.
 
 ```env
 DATABASE_URL=postgresql://USERNAME:PASSWORD@HOST:PORT/DATABASE_NAME
 ```
 
-Never commit real credentials.
+For production, `DATABASE_URL` is configured through Render environment variables.
+
+**Never commit real database credentials.**
 
 The repository `.gitignore` should contain:
 
@@ -1388,13 +1330,19 @@ The repository `.gitignore` should contain:
 !.env.example
 ```
 
-A public repository should provide `.env.example` containing placeholders only.
+The public repository should contain only placeholder values in `.env.example`.
+
+Example:
+
+```env
+DATABASE_URL=postgresql://username:password@localhost:5432/e2_database
+```
 
 ---
 
 # 34. Running the Application
 
-Development server:
+## Local Development
 
 ```bash
 uvicorn app.main:app --reload
@@ -1406,10 +1354,18 @@ Local backend:
 http://127.0.0.1:8000
 ```
 
-Health check:
+Local Swagger:
 
 ```text
-GET /health
+http://127.0.0.1:8000/docs
+```
+
+## Production
+
+Production backend:
+
+```text
+https://e2-backend.onrender.com
 ```
 
 ---
@@ -1418,39 +1374,39 @@ GET /health
 
 FastAPI automatically exposes interactive API documentation.
 
-Local Swagger UI:
+## Production Swagger UI
+
+```text
+https://e2-backend.onrender.com/docs
+```
+
+## Production OpenAPI Schema
+
+```text
+https://e2-backend.onrender.com/openapi.json
+```
+
+## Local Swagger UI
 
 ```text
 http://127.0.0.1:8000/docs
 ```
 
-OpenAPI schema:
+## Local OpenAPI Schema
 
 ```text
 http://127.0.0.1:8000/openapi.json
 ```
 
-After cloud deployment, these become:
-
-```text
-https://YOUR-DEPLOYED-BACKEND/docs
-```
-
-and:
-
-```text
-https://YOUR-DEPLOYED-BACKEND/openapi.json
-```
-
-Swagger allows frontend and integration developers to inspect schemas, execute APIs, and inspect responses.
+Frontend and integration developers should use Swagger/OpenAPI as the authoritative API contract for the running backend.
 
 ---
 
 # 36. Testing
 
-The backend can currently be tested through Swagger.
+The backend can be tested through Swagger.
 
-Recommended complete test sequence:
+Recommended end-to-end sequence:
 
 ```text
 1. Create Product
@@ -1481,6 +1437,12 @@ Recommended complete test sequence:
 26. Lookup Imported Shipment by Shipment Reference
 ```
 
+The production Swagger interface can be used for deployment testing:
+
+```text
+https://e2-backend.onrender.com/docs
+```
+
 A dedicated automated test suite using `pytest` can be added in a future version.
 
 ---
@@ -1488,6 +1450,14 @@ A dedicated automated test suite using `pytest` can be added in a future version
 # 37. Frontend Integration
 
 The FastAPI backend should be treated as the source of truth for E2 logistics state.
+
+Production base URL:
+
+```text
+https://e2-backend.onrender.com
+```
+
+Frontend API mapping:
 
 ```text
 Frontend
@@ -1507,50 +1477,55 @@ Frontend
    └── Dashboard ──────────────► /dashboard
 ```
 
-Frontend developers should use Swagger/OpenAPI as the authoritative contract for the running backend.
+For example:
+
+```text
+https://e2-backend.onrender.com/dashboard/summary
+```
+
+Frontend developers should use the production Swagger/OpenAPI documentation to verify request and response schemas.
 
 ---
 
 # 38. PR2 Integration
 
-PR2 and E2 can maintain **separate databases**.
+PR2 and E2 maintain **separate databases**.
 
 They communicate using REST APIs rather than sharing database tables directly.
-
-Architecture:
 
 ```text
 ┌────────────────────────┐
 │      PR2 Backend       │
-│                        │
 │ Procurement / Orders   │
 └────────────┬───────────┘
              │
-             │ HTTP POST
-             │ JSON
+             │ HTTP POST / JSON
              ▼
-┌────────────────────────┐
-│      E2 Backend        │
-│                        │
-│ /integrations/shipments│
-└────────────┬───────────┘
+┌───────────────────────────────┐
+│         E2 Backend            │
+│ POST /integrations/shipments  │
+└────────────┬──────────────────┘
              │
              ▼
 ┌────────────────────────┐
 │ shipment_integrations  │
 └────────────┬───────────┘
              │
-             ├────────────► Restock Order
+             ├──────────► Restock Order
              │
-             └────────────► Delivery
+             └──────────► Delivery
                               │
                               ▼
                          E2 Workflow
 ```
 
-## What PR2 needs to do
+## Production Integration Endpoint
 
-When PR2 creates or finalizes a shipment that E2 needs to track, PR2 sends:
+```text
+https://e2-backend.onrender.com/integrations/shipments
+```
+
+PR2 sends:
 
 ```http
 POST /integrations/shipments
@@ -1579,8 +1554,6 @@ E2 then handles the logistics workflow.
 
 PR2 does **not** need direct access to the E2 PostgreSQL database.
 
-This keeps the two services independently maintainable.
-
 ---
 
 # 39. Design Decisions
@@ -1599,7 +1572,7 @@ FastAPI provides:
 
 ## Why PostgreSQL?
 
-E2 contains strongly related business entities.
+E2 contains strongly related business entities:
 
 ```text
 Products
@@ -1630,8 +1603,6 @@ SQLAlchemy provides:
 
 Directly sharing one database would tightly couple two independently developed systems.
 
-Using:
-
 ```text
 PR2 Database
      ↓
@@ -1640,7 +1611,7 @@ REST API
 E2 Database
 ```
 
-provides clearer ownership and lower coupling.
+This provides clearer ownership and lower coupling.
 
 ## Why Random Forest for ETA?
 
@@ -1658,8 +1629,6 @@ Random Forest:
 
 Business functionality is separated into domain modules.
 
-Examples:
-
 ```text
 deliveries.py
 tracking.py
@@ -1669,14 +1638,7 @@ dashboard.py
 integrations.py
 ```
 
-This improves:
-
-- maintainability;
-- readability;
-- debugging;
-- team ownership;
-- testing;
-- API integration.
+This improves maintainability, readability, debugging, testing, team ownership, and API integration.
 
 ## Why Background Tracking?
 
@@ -1687,8 +1649,6 @@ A background process allows simulated shipment movement and ETA updates even whe
 ## Why Dock Scheduling?
 
 Dock recommendation alone identifies a suitable dock but does not address time conflicts.
-
-Dock scheduling adds:
 
 ```text
 Dock Compatibility
@@ -1726,7 +1686,7 @@ Current limitations include:
 - ML model is based on project/training data rather than large-scale production logistics history;
 - external integration currently uses REST rather than an event-driven message broker.
 
-These do not prevent current frontend/backend integration or project demonstration.
+These limitations do not prevent the current frontend/backend integration or project demonstration.
 
 ---
 
@@ -1746,6 +1706,7 @@ These do not prevent current frontend/backend integration or project demonstrati
 - Additional indexes
 - Transaction hardening
 - Database monitoring
+- Automated backups for production environments
 
 ## Integration
 
@@ -1766,12 +1727,20 @@ These do not prevent current frontend/backend integration or project demonstrati
 
 ## Infrastructure
 
+Currently implemented:
+
+- Cloud deployment using Render
+- Managed PostgreSQL database
+- GitHub-connected deployment
+- Production environment variables
+
+Future improvements:
+
 - Docker
 - Docker Compose
-- CI/CD
-- Cloud deployment
-- Managed PostgreSQL
-- Production ASGI configuration
+- CI/CD testing pipeline
+- Production scaling configuration
+- Multiple deployment environments
 
 ## Real-Time Logistics
 
@@ -1800,9 +1769,112 @@ These do not prevent current frontend/backend integration or project demonstrati
 
 ---
 
-# 42. Project Status
+# 42. Deployment
 
-**E2 backend implementation is operational and ready for deployment and cross-service integration at the current project scope.**
+E2 is deployed on **Render** as a Python Web Service.
+
+## Production Backend
+
+```text
+https://e2-backend.onrender.com
+```
+
+## Production Swagger UI
+
+```text
+https://e2-backend.onrender.com/docs
+```
+
+## Production OpenAPI Schema
+
+```text
+https://e2-backend.onrender.com/openapi.json
+```
+
+## Production Database
+
+The production backend uses a managed PostgreSQL database hosted on Render.
+
+The database connection is supplied to the application using:
+
+```env
+DATABASE_URL=<Render PostgreSQL connection URL>
+```
+
+The actual database username, password, hostname, and other credentials are stored securely in Render and are **not committed to GitHub**.
+
+## Render Build Command
+
+```bash
+pip install -r requirements.txt
+```
+
+## Render Start Command
+
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port $PORT
+```
+
+## Deployment Architecture
+
+```text
+GitHub
+   │
+   │ Source Code
+   ▼
+Render Web Service
+   │
+   │ Build
+   ▼
+Install requirements.txt
+   │
+   ▼
+Start Uvicorn
+   │
+   ▼
+FastAPI Application
+   │
+   ├────────► Render PostgreSQL
+   │
+   ├────────► ML ETA Model
+   │
+   └────────► Background Tracking
+   │
+   ▼
+Public REST API
+   │
+   ├────────► Frontend
+   └────────► PR2 / External Systems
+```
+
+## Deployment Status
+
+```text
+Web Service: Live
+Database: Available
+Runtime: Python 3
+Database Engine: PostgreSQL
+```
+
+The Render free Web Service may spin down after a period of inactivity. Therefore, the first request after an idle period can take longer than normal.
+
+---
+
+# 43. Project Status
+
+**E2 backend implementation is operational, cloud-deployed, and ready for frontend and cross-service integration at the current project scope.**
+
+Production backend:
+
+```text
+https://e2-backend.onrender.com
+```
+
+Production Swagger:
+
+```text
+https://e2-backend.onrender.com/docs
+```
 
 Implemented capabilities include:
 
@@ -1837,14 +1909,22 @@ Implemented capabilities include:
 - Operational insights
 - Background shipment tracking
 - Swagger/OpenAPI documentation
+- Render cloud deployment
+- Managed PostgreSQL database
 
-The PR2 → E2 integration flow has been locally validated using:
+The PR2 → E2 integration flow uses:
 
-```text
+```http
 POST /integrations/shipments
 ```
 
-followed by successful retrieval of the imported shipment through:
+Production:
+
+```text
+https://e2-backend.onrender.com/integrations/shipments
+```
+
+Imported shipments can subsequently be retrieved through:
 
 ```text
 GET /deliveries/
@@ -1855,43 +1935,7 @@ GET /tracking/reference/{shipment_reference}
 
 ---
 
-# Deployment
-
-The backend currently runs locally using:
-
-```text
-http://127.0.0.1:8000
-```
-
-For external frontend and PR2 integration, the backend should be deployed to a publicly accessible environment with a managed PostgreSQL database.
-
-After deployment:
-
-```text
-Local:
-http://127.0.0.1:8000
-
-Production:
-https://YOUR-E2-BACKEND-DOMAIN
-```
-
-PR2 will then call:
-
-```text
-https://YOUR-E2-BACKEND-DOMAIN/integrations/shipments
-```
-
-Swagger will be available at:
-
-```text
-https://YOUR-E2-BACKEND-DOMAIN/docs
-```
-
-The production URL should replace the placeholder above after deployment.
-
----
-
-# Repository
+# 44. Repository
 
 GitHub Repository:
 
@@ -1901,6 +1945,42 @@ PriyankaA1807/E2-backend
 
 ---
 
+# API Documentation
+
+Detailed API documentation is maintained separately in the `api-docs/` directory.
+
+```text
+api-docs/
+├── README.md
+├── products-api.md
+├── inventory-api.md
+├── suppliers-api.md
+├── restock-orders-api.md
+├── deliveries-api.md
+├── integrations-api.md
+├── tracking-api.md
+├── eta-api.md
+├── simulation-api.md
+├── yard-docks-api.md
+├── dock-operations-api.md
+├── operations-api.md
+└── dashboard-api.md
+```
+
+Production API base URL:
+
+```text
+https://e2-backend.onrender.com
+```
+
+Production Swagger:
+
+```text
+https://e2-backend.onrender.com/docs
+```
+
+---
+
 # E2 — Smart Restock & Yard Dock Delivery Tracker
 
-**FastAPI + PostgreSQL + SQLAlchemy + Machine Learning + GPS Simulation + Shipment Integration + Yard Operations + Intelligent Dock Scheduling**
+**FastAPI + PostgreSQL + SQLAlchemy + Machine Learning + GPS Simulation + Shipment Integration + Yard Operations + Intelligent Dock Scheduling + Render Deployment**
