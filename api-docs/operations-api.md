@@ -1,101 +1,108 @@
-# Operations & Alerts API
+# Operations API
 
-The Operations API monitors E2 Deliveries for operational problems and manages system-generated alerts.
+API documentation for the **Operations & Alerts** module of the E2 Smart Restock & Yard Dock Delivery Tracker.
 
-It supports:
+This module handles operational monitoring, delay detection, shipment exceptions, alerts, and operational insights.
 
-- shipment delay detection;
-- shipment exception detection;
-- unavailable-dock detection;
-- dock-reassignment-required detection;
-- operational alert retrieval;
-- alert resolution.
-
-**Base path:** `/operations`
+For the hackathon version, the system uses **one Operations Admin view**. All operational alerts are available to this admin dashboard. A complex multi-user authentication or role-management system is not required.
 
 ---
 
-# Endpoints
-
-| Method | Endpoint | Purpose |
-|---|---|---|
-| POST | `/operations/detect-delays` | Detect delayed Deliveries |
-| POST | `/operations/detect-exceptions` | Detect shipment exceptions |
-| POST | `/operations/detect-dock-unavailable` | Detect Deliveries assigned to unusable docks |
-| POST | `/operations/detect-reassignment-required` | Detect Deliveries requiring dock reassignment |
-| GET | `/operations/alerts` | Get unresolved operational alerts |
-| PUT | `/operations/alerts/{alert_id}/resolve` | Resolve an Alert |
-
----
-
-# Overall Operations Workflow
+## Base URL
 
 ```text
-Delivery
-   ↓
-Operations Detection
-   │
-   ├── Delay Detection
-   ├── Exception Detection
-   ├── Dock Availability Detection
-   └── Reassignment Detection
-   ↓
-Problem Found?
-   │
-   ├── No
-   │    ↓
-   │  Continue
-   │
-   └── Yes
-        ↓
-Update Delivery / Operational State
-        ↓
-Create or Reuse Alert
-        ↓
-GET /operations/alerts
-        ↓
-Frontend / Operator
-        ↓
-Take Corrective Action
-        ↓
-Resolve Alert
+http://127.0.0.1:8000
 ```
 
-The Delivery stores current operational state.
+Swagger:
 
-Alert records provide actionable notifications for the operations layer.
+```text
+http://127.0.0.1:8000/docs
+```
+
+> Replace the local URL with the deployed backend URL after deployment.
 
 ---
 
-# Alert Object
+# Overview
 
-An Alert contains information such as:
+The Operations module monitors inbound deliveries and identifies operational problems such as:
 
-| Field | Type | Description |
-|---|---|---|
-| `id` | integer | Database-generated Alert ID |
-| `delivery_id` | integer / null | Related Delivery |
-| `alert_type` | string | Alert category |
-| `title` | string | Short alert title |
-| `message` | string | Explanation of problem |
-| `severity` | string | Alert severity |
-| `resolved` | boolean | Resolution state |
-| `created_at` | datetime | Alert creation time |
+* Predicted shipment delays
+* Missing GPS updates
+* Shipment exceptions
+* Dock availability problems
+* Dock reassignment requirements
 
-Example:
+When a problem is detected, the backend can create an operational alert.
 
-```json
-{
-  "severity": "critical",
-  "id": 1,
-  "message": "GPS location has not been received",
-  "created_at": "2026-08-24T11:12:13.088743",
-  "delivery_id": 2,
-  "alert_type": "exception",
-  "title": "Shipment Exception",
-  "resolved": false
-}
+For the hackathon architecture:
+
+```text
+Truck / Delivery
+       ↓
+Tracking + ETA
+       ↓
+Problem Detected
+       ↓
+Operational Alert
+       ↓
+Single Operations Admin Dashboard
 ```
+
+---
+
+# Single Operations Admin
+
+The hackathon version does not require:
+
+```text
+Multiple users
+Multiple operations roles
+Role-based alert routing
+Complex authentication
+Individual notification accounts
+```
+
+Instead, the project uses one logical:
+
+```text
+Operations Admin
+```
+
+All unresolved operational alerts can be displayed in the same Operations Admin dashboard.
+
+This keeps the prototype focused on logistics operations rather than authentication infrastructure.
+
+---
+
+# Alert Types
+
+Operational alerts can represent situations such as:
+
+```text
+delay
+exception
+dock_unavailable
+dock_reassignment
+```
+
+The exact alert types depend on the operational condition detected by the backend.
+
+---
+
+# Alert Severity
+
+Alerts can contain severity levels such as:
+
+```text
+low
+medium
+high
+critical
+```
+
+Severity helps the Operations Admin understand which issues require attention first.
 
 ---
 
@@ -107,119 +114,59 @@ Example:
 POST /operations/detect-delays
 ```
 
-Checks Deliveries for delay conditions.
+Checks active deliveries for delay conditions.
 
-No request body is required.
+The system compares the delivery's expected or estimated arrival against its scheduled arrival.
 
 ---
 
-# Delay Detection Logic
-
-Conceptually:
+## Delay Flow
 
 ```text
-Load Deliveries
+Active Delivery
       ↓
-Scheduled Arrival available?
+Read Scheduled Arrival
       ↓
-Estimated Arrival available?
+Read Estimated Arrival / ETA
       ↓
-Compare Estimated vs Scheduled
+Compare Times
       ↓
 Late?
-  ┌────┴────┐
-  No       Yes
-            ↓
-     delay_detected = true
-            ↓
-      status = delayed
-            ↓
-      Create / Reuse Alert
+   ↙     ↘
+ NO      YES
+          ↓
+   delay_detected = true
+          ↓
+      Delay Alert
 ```
-
-The backend can also evaluate overdue shipments when scheduled-arrival information exists and the shipment has not reached an arrival/completion state.
 
 ---
 
-# Delivery Side Effects
+## Delay Detection During Simulation
 
-When a delay is identified, E2 can update:
+Delay detection can also happen while the truck is automatically moving.
+
+The flow is:
 
 ```text
-delivery.delay_detected = true
-delivery.status = delayed
+Truck Moves
+    ↓
+Distance Changes
+    ↓
+ETA Recalculated
+    ↓
+Estimated Arrival Changes
+    ↓
+Delay Condition Checked
+    ↓
+Alert Created if Required
 ```
 
-Therefore the endpoint changes operational shipment state, not only alerts.
+Therefore, the Operations Admin can see a delay while the simulated truck is still travelling.
 
 ---
 
-# Delay Alert
-
-Conceptually:
-
-```text
-Delayed Shipment
-      ↓
-Delivery updated
-      ↓
-Existing unresolved delay alert?
-   ┌──────────┴──────────┐
-   Yes                   No
-    ↓                     ↓
-Do not duplicate      Create Alert
-```
-
-The frontend can retrieve alerts through:
-
-```http
-GET /operations/alerts
-```
-
----
-
-# Example Delay Response
-
-A response can look conceptually like:
-
-```json
-{
-  "delayed_shipments": [
-    2
-  ],
-  "count": 1
-}
-```
-
----
-
-# Relationship with ML ETA
-
-Delay state can also be influenced by:
-
-```http
-POST /eta/predict-delivery/{delivery_id}
-```
-
-The ML ETA endpoint predicts arrival and can mark a shipment delayed when predicted lateness exceeds the configured threshold.
-
-Therefore:
-
-```text
-ML ETA
-   ↓
-Predicted Arrival
-   ↓
-Predicted Delay
-   ↓
-delay_detected
-   ↓
-Operations / Alerts
-```
-
----
-
-# 2. Detect Exceptions
+# 2. Detect Shipment Exceptions
 
 ## Endpoint
 
@@ -227,482 +174,31 @@ Operations / Alerts
 POST /operations/detect-exceptions
 ```
 
-Checks Deliveries for abnormal shipment conditions.
+Checks deliveries for operational exceptions.
 
-No request body is required.
-
----
-
-# Exception Detection
-
-Implemented conditions include cases such as:
-
-- missing GPS information for an in-transit shipment;
-- simulation active but coordinates are invalid/missing;
-- shipment has reached a relevant yard state but lacks an assigned dock.
+One example is missing or stale GPS information.
 
 ---
 
-# Exception 1 — Missing GPS
+## Example Exception
 
-Conceptually:
+A delivery may require attention when the backend has not received a valid GPS location.
 
-```text
-Delivery.status = in_transit
-        +
-last_gps_update is missing
-        ↓
-Shipment Exception
-```
-
-Possible reason:
-
-```text
-GPS location has not been received
-```
-
----
-
-# Exception 2 — Invalid GPS During Simulation
-
-```text
-simulation_active = true
-        +
-latitude / longitude missing
-        ↓
-Shipment Exception
-```
-
-Possible reason:
-
-```text
-Shipment has invalid GPS coordinates
-```
-
----
-
-# Exception 3 — Missing Dock
-
-A shipment can also become an exception when it reaches a yard-related state but no dock is assigned.
-
-Conceptually:
-
-```text
-Shipment reached yard
-      +
-dock_id = null
-      ↓
-Operational Exception
-```
-
----
-
-# Exception Side Effects
-
-When an exception is detected:
-
-```text
-delivery.exception_detected = true
-```
-
-and E2 can create an unresolved exception alert if one does not already exist.
-
----
-
-# Example Exception Response
+Example alert:
 
 ```json
 {
-  "exceptions": [
-    {
-      "delivery_id": 2,
-      "reason": "GPS location has not been received"
-    }
-  ],
-  "count": 1
+  "alert_type": "exception",
+  "severity": "critical",
+  "title": "Shipment Exception",
+  "message": "GPS location has not been received",
+  "resolved": false
 }
 ```
 
 ---
 
-# 3. Detect Dock Unavailable
-
-## Endpoint
-
-```http
-POST /operations/detect-dock-unavailable
-```
-
-Checks whether an active Delivery is currently assigned to a dock that can no longer be used.
-
-This endpoint is important because an existing `delivery.dock_id` does not necessarily mean the assignment is still valid.
-
----
-
-# Unavailable Dock States
-
-Operationally unusable states can include:
-
-```text
-blocked
-maintenance
-```
-
-and other states considered unsuitable by the current dock logic.
-
----
-
-# Detection Flow
-
-```text
-Delivery
-   ↓
-Has dock_id?
-   ├── No → Ignore
-   │
-   └── Yes
-        ↓
-Load YardDock
-        ↓
-Check Dock Status
-        ↓
-Usable?
-   ┌────┴────┐
-   Yes       No
-    ↓         ↓
-Continue   Report Delivery
-```
-
----
-
-# Example Request
-
-```http
-POST /operations/detect-dock-unavailable
-```
-
-No request body is required.
-
----
-
-# Example Response
-
-This response was produced during testing:
-
-```json
-{
-  "dock_unavailable": [
-    {
-      "delivery_id": 2,
-      "tracking_number": "TR-2045",
-      "trailer_id": null,
-      "dock_id": 1,
-      "dock_number": "D-01",
-      "dock_status": "blocked"
-    }
-  ],
-  "count": 1
-}
-```
-
----
-
-# Response Fields
-
-| Field | Type | Description |
-|---|---|---|
-| `delivery_id` | integer | Delivery using the unavailable dock |
-| `tracking_number` | string / null | Shipment tracking number |
-| `trailer_id` | string / null | Trailer identifier |
-| `dock_id` | integer | Current dock ID |
-| `dock_number` | string | Current dock number |
-| `dock_status` | string | Operational state causing the problem |
-
----
-
-# Example Scenario
-
-```text
-Delivery 2
-    ↓
-dock_id = 1
-    ↓
-Dock 1 status = blocked
-    ↓
-POST /operations/detect-dock-unavailable
-    ↓
-Delivery 2 returned as dock_unavailable
-```
-
----
-
-# Relationship with Yard Docks
-
-A dock can be updated through:
-
-```http
-PUT /yard-docks/{dock_id}?status=blocked
-```
-
-Then:
-
-```http
-POST /operations/detect-dock-unavailable
-```
-
-can identify Deliveries affected by that change.
-
-Conceptually:
-
-```text
-Yard Operator
-     ↓
-Block Dock
-     ↓
-Operations Detection
-     ↓
-Affected Deliveries
-```
-
----
-
-# 4. Detect Reassignment Required
-
-## Endpoint
-
-```http
-POST /operations/detect-reassignment-required
-```
-
-Checks whether a Delivery's current dock assignment is no longer operationally valid and the Delivery should be reassigned.
-
----
-
-# Example Request
-
-```http
-POST /operations/detect-reassignment-required
-```
-
-No request body is required.
-
----
-
-# Detection Flow
-
-```text
-Delivery
-    ↓
-Current Dock
-    ↓
-Check Dock State
-    ↓
-Dock still usable?
-   ┌─────┴─────┐
-  Yes          No
-   ↓            ↓
-Normal      Reassignment Required
-```
-
----
-
-# Example Response
-
-This response was produced during E2 testing:
-
-```json
-{
-  "reassignment_required": [
-    {
-      "delivery_id": 2,
-      "tracking_number": "TR-2045",
-      "trailer_id": null,
-      "current_dock_id": 1,
-      "current_dock_number": "D-01",
-      "dock_status": "blocked",
-      "reassignment_required": true
-    }
-  ],
-  "count": 1
-}
-```
-
----
-
-# Response Fields
-
-| Field | Type | Description |
-|---|---|---|
-| `delivery_id` | integer | Delivery requiring reassignment |
-| `tracking_number` | string / null | Shipment tracking number |
-| `trailer_id` | string / null | Trailer ID |
-| `current_dock_id` | integer | Existing dock |
-| `current_dock_number` | string | Existing dock number |
-| `dock_status` | string | Current dock state |
-| `reassignment_required` | boolean | Whether replacement assignment is needed |
-
----
-
-# Dock-Unavailable vs Reassignment-Required
-
-These endpoints are related but represent different operational questions.
-
-## Dock Unavailable
-
-Answers:
-
-```text
-Which Deliveries are currently attached
-to unusable docks?
-```
-
-Endpoint:
-
-```http
-POST /operations/detect-dock-unavailable
-```
-
----
-
-## Reassignment Required
-
-Answers:
-
-```text
-Which Deliveries now need a new dock?
-```
-
-Endpoint:
-
-```http
-POST /operations/detect-reassignment-required
-```
-
-Conceptually:
-
-```text
-Dock becomes blocked
-       ↓
-detect-dock-unavailable
-       ↓
-Problem identified
-       ↓
-detect-reassignment-required
-       ↓
-Replacement required
-```
-
----
-
-# Automatic Remediation
-
-After reassignment is identified, E2 can automatically select another dock through:
-
-```http
-POST /dock-operations/auto-reassign/{delivery_id}
-```
-
-Full flow:
-
-```text
-Dock Blocked
-      ↓
-detect-dock-unavailable
-      ↓
-detect-reassignment-required
-      ↓
-auto-reassign
-      ↓
-Alternative Dock Selected
-      ↓
-Delivery.dock_id updated
-```
-
----
-
-# Example Tested Reassignment Flow
-
-During testing:
-
-```text
-Delivery 2
-    ↓
-Current Dock = 1
-    ↓
-Dock 1 = blocked
-    ↓
-Reassignment required = true
-```
-
-The dock scheduler then selected:
-
-```text
-Dock 2
-```
-
-as the usable alternative.
-
----
-
-# Relationship with Dock Scheduling
-
-The scheduler:
-
-```http
-GET /dock-operations/schedule
-```
-
-or:
-
-```http
-GET /dashboard/dock-schedule
-```
-
-does not preserve a blocked assignment as valid.
-
-Conceptually:
-
-```text
-Current Dock = blocked
-       ↓
-Scheduler rejects current dock
-       ↓
-Evaluate alternatives
-       ↓
-Select suitable replacement
-```
-
----
-
-# Relationship with Trailer-Door Allocation
-
-The dashboard endpoint:
-
-```http
-GET /dashboard/trailer-door-allocation
-```
-
-combines current and scheduled assignments.
-
-Example:
-
-```text
-Current Dock = 1
-Current Dock Status = blocked
-
-Scheduled Dock = 2
-
-reassignment_required = true
-
-allocation_status =
-REASSIGNMENT_RECOMMENDED
-```
-
-This allows the frontend to show both the problem and the proposed operational correction.
-
----
-
-# 5. Get Alerts
+# 3. Get Operational Alerts
 
 ## Endpoint
 
@@ -710,64 +206,58 @@ This allows the frontend to show both the problem and the proposed operational c
 GET /operations/alerts
 ```
 
-Returns active unresolved alerts.
+Returns operational alerts.
+
+For the hackathon frontend, this endpoint can be used by the **single Operations Admin dashboard**.
 
 ---
 
-# Example Request
-
-```http
-GET /operations/alerts
-```
-
----
-
-# Example Response
+## Example Response
 
 ```json
 [
   {
-    "severity": "critical",
+    "severity": "high",
     "id": 1,
-    "message": "GPS location has not been received",
-    "created_at": "2026-08-24T11:12:13.088743",
-    "delivery_id": 2,
-    "alert_type": "exception",
-    "title": "Shipment Exception",
-    "resolved": false
+    "message": "Trailer TRL-101 is predicted to arrive late.",
+    "delivery_id": 3,
+    "alert_type": "delay",
+    "title": "Predicted Shipment Delay",
+    "resolved": false,
+    "created_at": "2026-08-26T10:00:00"
   }
 ]
 ```
 
-The `delivery_id` allows another system to resolve the affected shipment.
+The exact response depends on the alerts currently stored in the database.
 
 ---
 
-# Alert-to-Delivery Relationship
+# Who Receives the Alerts?
+
+For this hackathon project, alerts are not routed to many different users.
+
+Instead:
 
 ```text
-Alert
-  │
-  │ delivery_id
-  ▼
-Delivery
+Delay / Exception / Dock Problem
+             ↓
+         Alert Table
+             ↓
+GET /operations/alerts
+             ↓
+Operations Admin Dashboard
 ```
 
-Example:
+So when explaining the project, say:
 
-```json
-{
-  "id": 1,
-  "delivery_id": 2,
-  "title": "Shipment Exception"
-}
-```
+> All operational alerts are centralized in one Operations Admin dashboard for the hackathon prototype.
 
-means Alert `1` belongs to Delivery `2`.
+The current backend alert records are therefore treated as dashboard alerts rather than user-specific notifications.
 
 ---
 
-# 6. Resolve Alert
+# 4. Resolve Alert
 
 ## Endpoint
 
@@ -775,388 +265,320 @@ means Alert `1` belongs to Delivery `2`.
 PUT /operations/alerts/{alert_id}/resolve
 ```
 
-Marks an existing Alert as resolved.
+Marks an operational alert as resolved.
 
 ---
 
-# Path Parameter
+## Path Parameter
 
-| Parameter | Type | Required | Description |
-|---|---|---:|---|
-| `alert_id` | integer | Yes | Alert database ID |
+| Parameter  | Type    | Required | Description                   |
+| ---------- | ------- | -------- | ----------------------------- |
+| `alert_id` | integer | Yes      | Alert that should be resolved |
 
 ---
 
-# Example Request
+## Example Request
 
 ```http
 PUT /operations/alerts/1/resolve
 ```
 
-No request body is required.
-
 ---
 
-# Backend Logic
+## Result
+
+After resolution:
 
 ```text
-Receive alert_id
-      ↓
-Find Alert
-      ↓
-Alert exists?
-  No → HTTP 404
-      ↓ Yes
 resolved = true
-      ↓
-Commit
-      ↓
-Return Success
 ```
+
+This allows the Operations Admin to distinguish active problems from issues that have already been handled.
 
 ---
 
-# Example Successful Response
+# Alert Lifecycle
 
-```json
-{
-  "message": "Alert resolved successfully",
-  "alert_id": 1
-}
-```
-
----
-
-# Important Resolution Behavior
-
-Resolving an Alert means:
+The basic alert lifecycle is:
 
 ```text
-alert.resolved = true
+Operational Condition
+        ↓
+Problem Detected
+        ↓
+Alert Created
+        ↓
+resolved = false
+        ↓
+Operations Admin Sees Alert
+        ↓
+Admin Handles Problem
+        ↓
+Resolve Alert Endpoint
+        ↓
+resolved = true
 ```
 
-It does **not** automatically repair the underlying problem.
+---
+
+# Duplicate Alert Prevention
+
+The backend should avoid creating repeated unresolved alerts for the same ongoing problem.
 
 For example:
 
 ```text
-Dock Blocked
+Truck delayed
     ↓
-Alert / Detection
+Alert created
     ↓
-Resolve Alert
+Background loop checks again
+    ↓
+Same unresolved delay already exists
+    ↓
+Do not create another identical alert
 ```
 
-does not make the dock available.
-
-The underlying dock still needs an operational action such as:
-
-```http
-PUT /yard-docks/{dock_id}
-```
-
-or:
-
-```http
-POST /dock-operations/auto-reassign/{delivery_id}
-```
+This prevents the Operations Admin dashboard from being flooded with duplicate alerts while the background tracker continues running.
 
 ---
 
-# Duplicate Alert Protection
+# Relationship With ETA
 
-The backend checks for unresolved alerts before creating another equivalent alert for the same Delivery and alert type.
-
-Conceptually:
+The Operations module works closely with ETA prediction.
 
 ```text
-Problem detected
-      ↓
-Existing unresolved matching alert?
-   ┌─────────┴─────────┐
-  Yes                  No
-   ↓                    ↓
-Reuse               Create
-```
-
-This prevents repeated detection calls from creating unnecessary duplicate alerts.
-
----
-
-# Relationship with Tracking
-
-Tracking provides shipment GPS state.
-
-Operations evaluates that state.
-
-```text
-Tracking
-   ↓
-GPS Information
-   ↓
-Operations
-   ↓
-Missing GPS?
-   ↓
-Exception
-```
-
----
-
-# Relationship with ETA
-
-ML ETA prediction can identify a future delay.
-
-```text
-ETA Prediction
-      ↓
+GPS Position
+     ↓
+Remaining Distance
+     ↓
+Random Forest ETA
+     ↓
 Estimated Arrival
-      ↓
-Compare Scheduled Arrival
-      ↓
-Predicted Delay
-      ↓
-Delivery.delay_detected
-      ↓
-Operations / Alert
+     ↓
+Compare With Scheduled Arrival
+     ↓
+Delay?
+     ↓
+Operational Alert
 ```
+
+This allows ETA predictions to become actionable operational information.
 
 ---
 
-# Relationship with Yard Docks
+# Relationship With GPS Simulation
 
-Yard Docks provides current dock state.
+The automatic GPS simulation continuously changes the truck's location.
+
+As the truck moves:
 
 ```text
-YardDock
-   ↓
-available / reserved / blocked / maintenance
-   ↓
-Operations
-   ↓
-Availability Evaluation
+Latitude / Longitude
+       ↓
+Distance
+       ↓
+ETA
+       ↓
+Delay Detection
+       ↓
+Alerts
 ```
+
+This means the Operations Admin dashboard can reflect changes produced by the simulated real-time tracking system.
 
 ---
 
-# Relationship with Dock Operations
+# Relationship With Dock Operations
 
-Operations identifies problems.
+Operational alerts can also support yard and dock management.
 
-Dock Operations performs corrective assignment.
-
-```text
-Operations
-   ↓
-Problem Detected
-   ↓
-Dock Operations
-   ↓
-Assignment / Reassignment
-```
-
----
-
-# Relationship with Dashboard
-
-Dashboard endpoints expose the resulting operational state.
-
-Useful endpoints include:
-
-```http
-GET /dashboard/summary
-GET /dashboard/yard-status
-GET /dashboard/dock-schedule
-GET /dashboard/trailer-door-allocation
-GET /dashboard/insights
-```
-
-Conceptually:
+For example:
 
 ```text
-Tracking + ETA + Docks
-        ↓
-Operations
-        ↓
-Alerts / Flags
-        ↓
-Dashboard
+Truck Approaching Yard
+       ↓
+Check Dock
+       ↓
+Assigned Dock Unavailable
+       ↓
+Reassignment Required
+       ↓
+Operational Alert
+       ↓
+Operations Admin
 ```
+
+The admin can then use the dock recommendation or reassignment APIs.
 
 ---
 
 # Frontend Integration
 
-An Operations UI can use:
-
-```text
-Page Load / Poll
-      ↓
-GET /operations/alerts
-      ↓
-Render Operational Alerts
-```
-
-For dock problems:
-
-```text
-POST /operations/detect-dock-unavailable
-      ↓
-POST /operations/detect-reassignment-required
-      ↓
-Display affected shipment
-      ↓
-POST /dock-operations/auto-reassign/{delivery_id}
-```
-
----
-
-# Example UI Flow
-
-```text
-CRITICAL
-
-Dock Unavailable
-
-Delivery #2
-Tracking: TR-2045
-Current Dock: D-01
-Dock Status: BLOCKED
-
-[View Shipment]
-[Reassign Dock]
-```
-
----
-
-# Cross-Team Integration
-
-Another service does not need to know the Python implementation.
-
-It only needs the API contract.
-
-Example:
-
-```text
-External Operations Service
-       ↓
-POST detection endpoints
-       ↓
-Read response
-       ↓
-Use delivery_id
-       ↓
-GET /tracking/shipment/id/{delivery_id}
-       ↓
-Take corrective action
-```
-
----
-
-# Recommended Operations Sequence
-
-A complete operational check can run:
-
-```text
-1. POST /operations/detect-delays
-
-2. POST /operations/detect-exceptions
-
-3. POST /operations/detect-dock-unavailable
-
-4. POST /operations/detect-reassignment-required
-
-5. GET /operations/alerts
-
-6. GET /dashboard/trailer-door-allocation
-```
-
-If reassignment is required:
-
-```text
-7. POST /dock-operations/auto-reassign/{delivery_id}
-```
-
-Then verify:
-
-```text
-8. GET /yard-docks/
-
-9. GET /dashboard/dock-schedule
-
-10. GET /dashboard/trailer-door-allocation
-```
-
----
-
-# Error Handling
-
-Integrating applications should handle:
-
-| HTTP Status | Meaning |
-|---:|---|
-| `200` | Detection/read/resolve completed |
-| `404` | Resource not found |
-| `400` | Invalid operational condition/request |
-| `422` | Request/path validation error |
-| `500` | Unexpected backend failure |
-
-FastAPI errors generally use:
-
-```json
-{
-  "detail": "Error message"
-}
-```
-
----
-
-# Current Limitations
-
-The current Operations API provides rule-based operational monitoring.
-
-It does not yet provide:
-
-- predictive ML exception classification;
-- email/SMS notification delivery;
-- push notifications;
-- WebSocket alert streaming;
-- automatic remediation for every problem;
-- persistent workflow/escalation rules;
-- alert ownership/assignment;
-- authentication/authorization.
-
-However, dock reassignment is partially automatable through:
+A frontend Operations Admin dashboard can periodically retrieve:
 
 ```http
-POST /dock-operations/auto-reassign/{delivery_id}
+GET /operations/alerts
 ```
+
+and display unresolved alerts.
+
+The dashboard may show:
+
+```text
+Alert Severity
+Alert Type
+Delivery ID
+Trailer
+Alert Message
+Created Time
+Resolved Status
+```
+
+The same dashboard can combine alert information with tracking, ETA, yard, and dock information.
+
+---
+
+# Suggested Dashboard Flow
+
+```text
+Operations Admin Dashboard
+          ↓
+Get Active Deliveries
+          ↓
+Get Current Tracking Data
+          ↓
+Display Truck Map
+          ↓
+Display ETA
+          ↓
+GET /operations/alerts
+          ↓
+Display Active Alerts
+          ↓
+Admin Handles Issue
+          ↓
+PUT /operations/alerts/{alert_id}/resolve
+```
+
+---
+
+# Hackathon Scope
+
+The Operations module intentionally avoids unnecessary enterprise complexity.
+
+For the hackathon:
+
+```text
+One Operations Admin
+One central alert list
+No multi-role authentication
+No individual alert recipients
+No SMS/email notification infrastructure required
+```
+
+The focus is demonstrating:
+
+```text
+Detect Problem
+      ↓
+Create Alert
+      ↓
+Show Admin
+      ↓
+Resolve Problem
+```
+
+---
+
+# Production Extension
+
+In a production system, the same alert architecture could later support:
+
+* Multiple operations users
+* Role-based access control
+* Warehouse-specific administrators
+* Email notifications
+* SMS notifications
+* Push notifications
+* Slack or Microsoft Teams notifications
+* Escalation policies
+* Alert ownership
+* Audit history
+
+These features are outside the scope of the current hackathon prototype.
+
+---
+
+# Demo Explanation
+
+During the hackathon demo, the alert system can be explained as:
+
+> The backend continuously monitors the simulated truck. As its location changes, the ETA is recalculated. If the predicted arrival indicates a delay or another operational exception occurs, the backend creates an alert. All alerts are centralized in a single Operations Admin dashboard, where the admin can view and resolve them.
+
+---
+
+# Example End-to-End Delay Scenario
+
+```text
+Truck Simulation Started
+        ↓
+Truck Moves Automatically
+        ↓
+GPS Position Updated
+        ↓
+Remaining Distance Calculated
+        ↓
+Random Forest ETA Updated
+        ↓
+Predicted Arrival Is Late
+        ↓
+delay_detected = true
+        ↓
+Delay Alert Created
+        ↓
+Operations Admin Sees Alert
+        ↓
+Admin Handles Situation
+        ↓
+Alert Resolved
+```
+
+---
+
+# Example Arrival Scenario
+
+When the truck reaches the yard:
+
+```text
+Truck Reaches Destination
+        ↓
+status = arrived_at_gate
+        ↓
+distance_remaining_km = 0
+        ↓
+eta_minutes = 0
+        ↓
+simulation_active = false
+        ↓
+Operations Continues With Yard / Dock Process
+```
+
+A previous delay can remain recorded as historical information even after the truck arrives.
 
 ---
 
 # Summary
 
-The Operations API acts as E2's operational monitoring layer.
+The Operations API provides:
 
-```text
-Tracking
-+
-ETA
-+
-Delivery State
-+
-Dock State
-      ↓
-Operations
-      ↓
-Delay
-Exception
-Dock Unavailable
-Reassignment Required
-      ↓
-Alerts / Corrective Action
-      ↓
-Dashboard
-```
+* Delay detection
+* Shipment exception detection
+* Operational alerts
+* Alert resolution
+* Integration with ETA prediction
+* Integration with automatic GPS simulation
+* Integration with dock operations
+* Centralized alert visibility
 
-It converts raw logistics state into actionable operational information.
+For the hackathon, all operational alerts are presented through **one Operations Admin view**, without requiring a complex user-authentication or role-management system.
