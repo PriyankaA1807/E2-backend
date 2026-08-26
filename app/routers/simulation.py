@@ -7,7 +7,12 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Delivery, TrackingEvent, YardDock
-from app.schemas import WMSFeedResponse
+from app.schemas import (
+    WMSFeedResponse,
+    SimulationStartResponse,
+    SimulationStepResponse,
+    SimulationStopResponse,
+)
 
 
 router = APIRouter(
@@ -87,7 +92,10 @@ def move_towards_destination(
 # START GPS SIMULATION
 # ============================================================
 
-@router.post("/start/{delivery_id}")
+@router.post(
+    "/start/{delivery_id}",
+    response_model=SimulationStartResponse
+)
 def start_simulation(
     delivery_id: int,
     db: Session = Depends(get_db)
@@ -111,11 +119,24 @@ def start_simulation(
             detail="Destination coordinates are required"
         )
 
-    # If no current location exists, generate a simulated
-    # starting location.
+    # If this delivery already completed/arrived in an earlier
+    # simulation, generate a fresh starting location.
+    finished_statuses = {
+        "arrived_at_gate",
+        "in_yard",
+        "waiting_for_dock",
+        "dock_assigned",
+        "docked",
+        "unloading",
+        "arrived",
+        "completed",
+        "departed"
+    }
+
     if (
         delivery.current_latitude is None
         or delivery.current_longitude is None
+        or delivery.status in finished_statuses
     ):
         delivery.current_latitude = (
             delivery.destination_latitude
@@ -127,13 +148,20 @@ def start_simulation(
             + random.uniform(2.0, 8.0)
         )
 
+    # Starting/restarting simulation means the truck is travelling.
     delivery.simulation_active = True
+    delivery.status = "in_transit"
 
-    # Respect the trailer lifecycle.
-    if delivery.status == "scheduled":
-        delivery.status = "in_transit"
-
+    # Clear stale state from an earlier run.
+    delivery.actual_arrival = None
+    delivery.delay_detected = False
+    delivery.exception_detected = False
     delivery.last_gps_update = datetime.utcnow()
+
+    delivery.current_location = (
+        f"{delivery.current_latitude:.5f}, "
+        f"{delivery.current_longitude:.5f}"
+    )
 
     distance = haversine_distance(
         delivery.current_latitude,
@@ -146,30 +174,26 @@ def start_simulation(
 
     speed = (
         delivery.average_speed_kmph
-        if delivery.average_speed_kmph
-        else 50
+        if (
+            delivery.average_speed_kmph
+            and delivery.average_speed_kmph > 0
+        )
+        else 50.0
     )
 
-    if speed > 0:
-        eta_minutes = (distance / speed) * 60
-    else:
-        eta_minutes = None
+    eta_minutes = (distance / speed) * 60
 
     delivery.eta_minutes = eta_minutes
 
-    if eta_minutes is not None:
-        delivery.estimated_arrival = (
-            datetime.utcnow()
-            + timedelta(minutes=eta_minutes)
-        )
+    delivery.estimated_arrival = (
+        datetime.utcnow()
+        + timedelta(minutes=eta_minutes)
+    )
 
     event = TrackingEvent(
         delivery_id=delivery.id,
-        status=delivery.status,
-        location=(
-            f"{delivery.current_latitude:.5f}, "
-            f"{delivery.current_longitude:.5f}"
-        ),
+        status="in_transit",
+        location=delivery.current_location,
         latitude=delivery.current_latitude,
         longitude=delivery.current_longitude,
         event_time=datetime.utcnow(),
@@ -189,9 +213,8 @@ def start_simulation(
         "simulation_active": delivery.simulation_active,
         "current_latitude": delivery.current_latitude,
         "current_longitude": delivery.current_longitude,
-        "distance_remaining_km": (
-            delivery.distance_remaining_km
-        ),
+        "current_location": delivery.current_location,
+        "distance_remaining_km": delivery.distance_remaining_km,
         "eta_minutes": delivery.eta_minutes,
         "estimated_arrival": delivery.estimated_arrival
     }
@@ -201,7 +224,10 @@ def start_simulation(
 # SIMULATE ONE GPS STEP
 # ============================================================
 
-@router.post("/step/{delivery_id}")
+@router.post(
+    "/step/{delivery_id}",
+    response_model=SimulationStepResponse
+)
 def simulate_step(
     delivery_id: int,
     db: Session = Depends(get_db)
@@ -385,7 +411,10 @@ def simulate_step(
 # STOP GPS SIMULATION
 # ============================================================
 
-@router.post("/stop/{delivery_id}")
+@router.post(
+    "/stop/{delivery_id}",
+    response_model=SimulationStopResponse
+)
 def stop_simulation(
     delivery_id: int,
     db: Session = Depends(get_db)

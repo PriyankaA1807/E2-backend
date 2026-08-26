@@ -702,3 +702,96 @@ class ShipmentIntegrationResponse(BaseModel):
 
     status: str
     source_system: str
+
+# ============================================================
+# PR2 -> E2 SHIPMENT INTEGRATION
+# ============================================================
+
+class ShipmentIntegrationCreate(BaseModel):
+    external_order_id: str
+
+    tracking_number: str
+    trailer_id: Optional[str] = None
+    shipment_reference: Optional[str] = None
+
+    carrier: Optional[str] = None
+
+    quantity: int
+
+    scheduled_arrival: Optional[datetime] = None
+
+    destination_latitude: Optional[float] = None
+    destination_longitude: Optional[float] = None
+
+    source_system: str = "PR2"
+
+
+class ShipmentIntegrationResponse(BaseModel):
+    message: str
+
+    integration_id: int
+    delivery_id: int
+    restock_order_id: int
+
+    external_order_id: str
+    tracking_number: str
+
+    trailer_id: Optional[str] = None
+    shipment_reference: Optional[str] = None
+
+    status: str
+    source_system: str
+
+# ============================================================
+# GPS SIMULATION RESPONSES
+# ============================================================
+
+class SimulationStartResponse(BaseModel):
+    message: str
+    delivery_id: int
+
+    tracking_number: Optional[str] = None
+    trailer_id: Optional[str] = None
+
+    status: str
+    simulation_active: bool
+
+    current_latitude: Optional[float] = None
+    current_longitude: Optional[float] = None
+    current_location: Optional[str] = None
+
+    distance_remaining_km: Optional[float] = None
+    eta_minutes: Optional[float] = None
+
+    estimated_arrival: Optional[datetime] = None
+
+
+class SimulationStepResponse(BaseModel):
+    message: str
+    delivery_id: int
+
+    tracking_number: Optional[str] = None
+    trailer_id: Optional[str] = None
+
+    status: str
+
+    current_latitude: Optional[float] = None
+    current_longitude: Optional[float] = None
+    current_location: Optional[str] = None
+
+    average_speed_kmph: Optional[float] = None
+
+    distance_remaining_km: Optional[float] = None
+    eta_minutes: Optional[float] = None
+
+    estimated_arrival: Optional[datetime] = None
+
+    simulation_active: bool
+
+
+class SimulationStopResponse(BaseModel):
+    message: str
+    delivery_id: int
+    status: str
+    simulation_active: bool
+
