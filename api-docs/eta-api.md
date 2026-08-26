@@ -1,67 +1,146 @@
-# ETA Prediction API
+# ETA API
 
-The ETA API provides machine-learning-based shipment arrival prediction for the E2 backend.
+API documentation for the **ETA Prediction** module of the E2 Smart Restock & Yard Dock Delivery Tracker.
 
-The current ETA model is a:
+This module predicts shipment arrival time using a trained **RandomForestRegressor** and supports delay detection for active deliveries.
+
+---
+
+## Base URL
+
+```text
+http://127.0.0.1:8000
+```
+
+Swagger:
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+> Replace the local URL with the deployed backend URL after deployment.
+
+---
+
+# Overview
+
+The ETA module estimates how long an active shipment may take to reach its destination.
+
+The system uses a trained:
 
 ```text
 RandomForestRegressor
 ```
 
-The API supports two prediction modes:
-
-1. direct prediction using manually supplied model features;
-2. delivery-aware prediction using an existing E2 Delivery.
-
-**Base path:** `/eta`
-
----
-
-# Endpoints
-
-| Method | Endpoint | Purpose |
-|---|---|---|
-| GET | `/eta/predict` | Run direct ML ETA prediction using query parameters |
-| POST | `/eta/predict-delivery/{delivery_id}` | Predict ETA for an existing E2 Delivery and evaluate delay |
-
----
-
-# ETA Architecture
+The model is loaded from:
 
 ```text
-                       ETA API
-                          │
-             ┌────────────┴────────────┐
-             │                         │
-             ▼                         ▼
-      Direct Prediction         Delivery Prediction
-      GET /eta/predict          POST /eta/predict-delivery
-             │                         │
-             ▼                         ▼
-      Query Parameters              Delivery
-             │                         │
-             ▼                         ├── Distance
-      ML Input Features               ├── Quantity
-             │                         ├── Schedule
-             │                         └── Current State
-             └────────────┬────────────┘
-                          ▼
-                 Random Forest Model
-                          │
-                          ▼
-                 Predicted Duration
-                          │
-                          ▼
-                 Estimated Arrival
-                          │
-                          ▼
-                 Delay Evaluation
-                   (delivery mode)
+app/ml/saved_models/eta_model.pkl
+```
+
+The ETA model can be tested independently or used for a real delivery.
+
+---
+
+# Model Inputs
+
+The model uses four input features:
+
+```text
+distance_km
+quantity
+supplier_delay_history
+carrier_delay_history
 ```
 
 ---
 
-# 1. Direct ETA Prediction
+# Hackathon Input Usage
+
+For the hackathon prototype, these inputs are used as follows.
+
+## distance_km
+
+This value is calculated dynamically from the truck's current simulated GPS location to the destination.
+
+As the truck moves:
+
+```text
+GPS changes
+    ↓
+remaining distance changes
+    ↓
+distance_km changes
+```
+
+This is the primary live-changing input during the simulated journey.
+
+---
+
+## quantity
+
+The shipment quantity comes from the linked restock order.
+
+Example:
+
+```text
+Delivery
+   ↓
+Restock Order
+   ↓
+quantity
+```
+
+---
+
+## supplier_delay_history
+
+For the hackathon automatic simulation, this currently uses a prototype/default value.
+
+Example:
+
+```text
+0.0
+```
+
+In a production system, this could come from historical supplier performance data.
+
+---
+
+## carrier_delay_history
+
+For the hackathon automatic simulation, this also uses a prototype/default value.
+
+Example:
+
+```text
+0.0
+```
+
+In a production system, this could come from historical carrier performance data.
+
+---
+
+# Important Hackathon Note
+
+The project does **not** require a full historical supplier or carrier analytics platform.
+
+The two history inputs are included to demonstrate that the ML model can consider historical logistics reliability.
+
+For the hackathon:
+
+```text
+distance_km → dynamic simulated delivery data
+quantity → linked restock order
+supplier_delay_history → prototype/default value
+carrier_delay_history → prototype/default value
+```
+
+This is enough for the prototype.
+
+---
+
+# 1. Standalone ETA Prediction
 
 ## Endpoint
 
@@ -69,122 +148,40 @@ The API supports two prediction modes:
 GET /eta/predict
 ```
 
-Runs the trained ETA model using feature values supplied directly through query parameters.
-
-This endpoint does not require an E2 Delivery to exist.
+This endpoint allows direct testing of the trained Random Forest ETA model without requiring an existing delivery.
 
 ---
 
-# Query Parameters
+## Query Parameters
 
-| Parameter | Type | Required | Description |
-|---|---|---:|---|
-| `distance_km` | float | Yes | Shipment distance in kilometers |
-| `quantity` | float | Yes | Shipment quantity |
-| `supplier_delay_history` | float | Yes | Historical supplier-delay input |
-| `carrier_delay_history` | float | Yes | Historical carrier-delay input |
+| Parameter                | Type  | Required | Description                               |
+| ------------------------ | ----- | -------- | ----------------------------------------- |
+| `distance_km`            | float | Yes      | Remaining delivery distance in kilometers |
+| `quantity`               | float | Yes      | Shipment quantity                         |
+| `supplier_delay_history` | float | Yes      | Supplier historical delay input           |
+| `carrier_delay_history`  | float | Yes      | Carrier historical delay input            |
 
 ---
 
-# Example Request
+## Example Request
 
 ```http
 GET /eta/predict?distance_km=500&quantity=100&supplier_delay_history=2&carrier_delay_history=1
 ```
 
-No JSON request body is required.
-
 ---
 
-# Model Input Features
-
-The trained model expects:
-
-```text
-distance_km
-quantity
-supplier_delay_history
-carrier_delay_history
-```
-
-Conceptually:
-
-```text
-distance_km
-      +
-quantity
-      +
-supplier_delay_history
-      +
-carrier_delay_history
-      ↓
-RandomForestRegressor
-      ↓
-Estimated Delivery Hours
-      ↓
-Current UTC Time
-      +
-Predicted Hours
-      ↓
-Estimated Arrival
-```
-
----
-
-# Example Successful Response
-
-```http
-200 OK
-```
+## Example Response
 
 ```json
 {
-  "estimated_delivery_hours": 12.34,
-  "estimated_arrival": "2026-08-25T20:34:00"
+  "estimated_delivery_hours": 11.28,
+  "estimated_delivery_minutes": 676.8,
+  "estimated_arrival": "2026-08-26T20:00:00"
 }
 ```
 
----
-
-# Response Fields
-
-| Field | Type | Description |
-|---|---|---|
-| `estimated_delivery_hours` | float | ML-predicted delivery duration in hours |
-| `estimated_arrival` | datetime | Current UTC time plus predicted duration |
-
-The exact values depend on both the model output and the time of prediction.
-
----
-
-# Direct Prediction Backend Logic
-
-```text
-Receive Query Parameters
-        ↓
-Build Model Features
-        ↓
-RandomForestRegressor.predict(...)
-        ↓
-Predicted Delivery Hours
-        ↓
-Convert Prediction to Float
-        ↓
-Current UTC + Prediction
-        ↓
-Return ETA
-```
-
-This endpoint behaves primarily as a standalone ML prediction service.
-
-It does not require:
-
-```text
-Delivery ID
-Tracking Number
-Trailer ID
-Shipment Reference
-```
+The exact prediction depends on the trained model.
 
 ---
 
@@ -196,897 +193,416 @@ Shipment Reference
 POST /eta/predict-delivery/{delivery_id}
 ```
 
-Runs the ETA model for an existing E2 Delivery and integrates the prediction into the shipment workflow.
+Predicts ETA for an existing delivery.
 
-Unlike the basic prediction endpoint, this API can:
-
-```text
-Load Delivery
-    ↓
-Load Related Restock Order
-    ↓
-Read Quantity
-    ↓
-Use Remaining Distance
-    ↓
-Run ML Prediction
-    ↓
-Update Estimated Arrival
-    ↓
-Update ETA Minutes
-    ↓
-Compare Against Scheduled Arrival
-    ↓
-Detect Predicted Delay
-    ↓
-Update Delivery
-    ↓
-Create / Reuse Delay Alert
-```
+The endpoint uses information already stored for the delivery and its linked restock order.
 
 ---
 
-# Path Parameter
+## Path Parameter
 
-| Parameter | Type | Required | Description |
-|---|---|---:|---|
-| `delivery_id` | integer | Yes | Existing E2 Delivery ID |
-
----
-
-# Query Parameters
-
-| Parameter | Type | Required | Default / Rule | Description |
-|---|---|---:|---|---|
-| `supplier_delay_history` | float | No | `0` | Historical supplier-delay feature |
-| `carrier_delay_history` | float | No | `0` | Historical carrier-delay feature |
-| `delay_threshold_minutes` | float | No | `15` | Minimum predicted lateness required before considering the shipment delayed |
-
-These values must be non-negative.
+| Parameter     | Type    | Required | Description                            |
+| ------------- | ------- | -------- | -------------------------------------- |
+| `delivery_id` | integer | Yes      | Delivery whose ETA should be predicted |
 
 ---
 
-# Example Request
+## Optional Query Parameters
+
+| Parameter                 | Type  | Default | Description                          |
+| ------------------------- | ----- | ------: | ------------------------------------ |
+| `supplier_delay_history`  | float |   `0.0` | Supplier delay-history input         |
+| `carrier_delay_history`   | float |   `0.0` | Carrier delay-history input          |
+| `delay_threshold_minutes` | float |  `15.0` | Delay threshold used for alert logic |
+
+---
+
+## Example Request
 
 ```http
-POST /eta/predict-delivery/2?supplier_delay_history=0&carrier_delay_history=0&delay_threshold_minutes=15
+POST /eta/predict-delivery/3?supplier_delay_history=0&carrier_delay_history=0&delay_threshold_minutes=15
 ```
-
-No request body is required.
 
 ---
 
-# Delivery Data Used
+# Internal Flow
 
-The endpoint derives model information from the existing Delivery and its related RestockOrder.
+The endpoint follows this process:
 
-Typical mapping:
+```text
+Find Delivery
+     ↓
+Read distance_remaining_km
+     ↓
+Find linked Restock Order
+     ↓
+Read quantity
+     ↓
+Run Random Forest model
+     ↓
+Get predicted ETA
+     ↓
+Save ETA to Delivery
+     ↓
+Compare with scheduled arrival
+     ↓
+Detect delay if required
+     ↓
+Create delay alert if required
+```
+
+---
+
+# Distance Requirement
+
+The delivery must already have a valid:
+
+```text
+distance_remaining_km
+```
+
+If distance is missing, the ETA endpoint cannot perform a delivery prediction.
+
+This usually means the shipment should first have:
+
+* GPS data
+* a simulated location update
+* or an active simulation
+
+---
+
+## Example Error
+
+```json
+{
+  "detail": "Delivery does not have distance_remaining_km. Start GPS simulation or update the shipment location first."
+}
+```
+
+---
+
+# Random Forest Prediction
+
+The model receives:
 
 ```text
 distance_km
-    ↓
-Delivery.distance_remaining_km
-
 quantity
-    ↓
-Delivery
-    ↓
-RestockOrder.quantity
-
 supplier_delay_history
-    ↓
-Query Parameter
-
 carrier_delay_history
-    ↓
-Query Parameter
 ```
 
-This means callers do not need to manually send the shipment distance and quantity when using the delivery-aware endpoint.
+and predicts a delivery duration.
 
----
-
-# Prediction Flow
+The prediction is converted into:
 
 ```text
-delivery_id
-    ↓
-Find Delivery
-    ↓
-Delivery exists?
-    ├── No → 404
-    │
-    └── Yes
-         ↓
-Read distance_remaining_km
-         ↓
-Read RestockOrder quantity
-         ↓
-Add supplier/carrier history
-         ↓
-RandomForestRegressor
-         ↓
-Estimated Delivery Hours
-         ↓
-Estimated Delivery Minutes
-         ↓
-Estimated Arrival
-         ↓
-Update Delivery
+estimated_delivery_hours
+estimated_delivery_minutes
+estimated_arrival
 ```
 
 ---
 
-# Example Successful Response
+# Saving ETA to Delivery
 
-The following response was produced during E2 testing:
+The result is stored in the delivery record.
 
-```json
-{
-  "delivery_id": 2,
-  "tracking_number": "TR-2045",
-  "trailer_id": null,
-  "model": "RandomForestRegressor",
-  "inputs": {
-    "distance_km": 1461.0756234171756,
-    "quantity": 50,
-    "supplier_delay_history": 0,
-    "carrier_delay_history": 0
-  },
-  "prediction": {
-    "estimated_delivery_hours": 29.47,
-    "estimated_delivery_minutes": 1768.39,
-    "estimated_arrival": "2026-08-26T19:22:18.668918"
-  },
-  "schedule": {
-    "scheduled_arrival": "2026-08-24T12:00:00",
-    "predicted_delay_minutes": 3322.31,
-    "delay_threshold_minutes": 15
-  },
-  "delay": {
-    "delay_detected": true,
-    "alert_created": false,
-    "current_status": "delayed"
-  },
-  "evaluated_at": "2026-08-25T13:53:55.345773"
-}
-```
-
----
-
-# Response Structure
-
-## Top-Level Fields
-
-| Field | Type | Description |
-|---|---|---|
-| `delivery_id` | integer | E2 Delivery being evaluated |
-| `tracking_number` | string / null | Shipment tracking number |
-| `trailer_id` | string / null | Trailer identifier |
-| `model` | string | ML model used |
-| `inputs` | object | Model features used |
-| `prediction` | object | ETA prediction |
-| `schedule` | object | Schedule-vs-prediction comparison |
-| `delay` | object | Delay evaluation result |
-| `evaluated_at` | datetime | Prediction evaluation time |
-
----
-
-# Inputs Object
-
-Example:
-
-```json
-{
-  "distance_km": 1461.0756234171756,
-  "quantity": 50,
-  "supplier_delay_history": 0,
-  "carrier_delay_history": 0
-}
-```
-
-| Field | Type | Description |
-|---|---|---|
-| `distance_km` | float | Remaining delivery distance |
-| `quantity` | float | Shipment/restock quantity |
-| `supplier_delay_history` | float | Supplier historical delay input |
-| `carrier_delay_history` | float | Carrier historical delay input |
-
----
-
-# Prediction Object
-
-Example:
-
-```json
-{
-  "estimated_delivery_hours": 29.47,
-  "estimated_delivery_minutes": 1768.39,
-  "estimated_arrival": "2026-08-26T19:22:18.668918"
-}
-```
-
-| Field | Type | Description |
-|---|---|---|
-| `estimated_delivery_hours` | float | ML-predicted duration |
-| `estimated_delivery_minutes` | float | Prediction converted to minutes |
-| `estimated_arrival` | datetime | Predicted arrival timestamp |
-
----
-
-# Schedule Object
-
-Example:
-
-```json
-{
-  "scheduled_arrival": "2026-08-24T12:00:00",
-  "predicted_delay_minutes": 3322.31,
-  "delay_threshold_minutes": 15
-}
-```
-
-| Field | Type | Description |
-|---|---|---|
-| `scheduled_arrival` | datetime / null | Planned arrival |
-| `predicted_delay_minutes` | float | Difference between predicted and scheduled arrival |
-| `delay_threshold_minutes` | float | Configured threshold before delay is considered significant |
-
----
-
-# Delay Object
-
-Example:
-
-```json
-{
-  "delay_detected": true,
-  "alert_created": false,
-  "current_status": "delayed"
-}
-```
-
-| Field | Type | Description |
-|---|---|---|
-| `delay_detected` | boolean | Whether predicted lateness crossed the threshold |
-| `alert_created` | boolean | Whether a new alert was created during this request |
-| `current_status` | string | Current Delivery status after evaluation |
-
----
-
-# Why `alert_created` Can Be False During a Delay
-
-A response can contain:
-
-```json
-{
-  "delay_detected": true,
-  "alert_created": false
-}
-```
-
-This does not mean alert handling failed.
-
-It can mean an unresolved delay alert already exists.
-
-Conceptually:
+The backend updates:
 
 ```text
-Delay detected
-      ↓
-Check existing unresolved delay alert
-      ↓
-Alert exists?
-   ┌──────┴──────┐
-  Yes            No
-   ↓              ↓
-Reuse state    Create Alert
-   ↓              ↓
-false           true
+delivery.eta_minutes
+delivery.estimated_arrival
 ```
 
-This avoids generating repeated duplicate alerts whenever ETA is recalculated.
+This allows the tracking API and frontend dashboard to display the current ETA.
 
 ---
 
-# Automatic Delivery Updates
+# Delay Detection
 
-The delivery-aware ETA endpoint is not read-only.
-
-It can update fields on the Delivery.
-
-Conceptually:
+After predicting the arrival time, the system compares:
 
 ```text
-ML Prediction
-      ↓
-Delivery.estimated_arrival
-      ↓
-Delivery.eta_minutes
+estimated_arrival
 ```
 
-If a delay is detected:
+with:
 
 ```text
-Delivery.delay_detected = true
+scheduled_arrival
 ```
 
-and the current operational state can become:
-
-```text
-delayed
-```
-
-depending on shipment state and implementation logic.
-
----
-
-# Delay Evaluation
-
-Delay is based on the comparison between:
-
-```text
-Predicted Arrival
-      -
-Scheduled Arrival
-```
-
-This produces:
+The backend calculates:
 
 ```text
 predicted_delay_minutes
 ```
 
-The result is compared with:
+If:
 
 ```text
-delay_threshold_minutes
+predicted_delay_minutes > delay_threshold_minutes
 ```
 
-Conceptually:
+then the delivery can be marked as delayed.
+
+Example:
 
 ```text
+Scheduled Arrival = 3:00 PM
+Predicted Arrival = 3:40 PM
+Threshold = 15 minutes
+
 Predicted Delay = 40 minutes
-Threshold       = 15 minutes
 
 40 > 15
-   ↓
-Delay Detected
+    ↓
+Delay detected
 ```
-
-If the predicted delay does not exceed the threshold, the endpoint does not mark it as a predicted delay.
 
 ---
 
-# Alert Integration
+# Delay Processing
 
-When a predicted delay is detected, E2 can create a delay alert if no suitable unresolved delay alert already exists.
+When a delay is detected:
 
-The alert can later be retrieved through:
+```text
+delay_detected = true
+```
+
+For travelling states such as:
+
+```text
+scheduled
+in_transit
+```
+
+the delivery status can become:
+
+```text
+delayed
+```
+
+---
+
+# Delay Alert
+
+If no unresolved delay alert already exists, the backend creates an operational alert.
+
+Example alert:
+
+```json
+{
+  "alert_type": "delay",
+  "severity": "high",
+  "title": "Predicted Shipment Delay",
+  "message": "Trailer TRL-101 is predicted to arrive 40.0 minutes late."
+}
+```
+
+The alert can then be viewed from:
 
 ```http
 GET /operations/alerts
 ```
 
-This connects ETA prediction with the Operations layer.
+For the hackathon, these alerts are shown to the single **Operations Admin** view.
+
+---
+
+# Example Delivery ETA Response
+
+```json
+{
+  "delivery_id": 3,
+  "tracking_number": "TRK-E2-101",
+  "trailer_id": "TRL-101",
+  "model": "RandomForestRegressor",
+  "inputs": {
+    "distance_km": 102.99,
+    "quantity": 100,
+    "supplier_delay_history": 0,
+    "carrier_delay_history": 0
+  },
+  "prediction": {
+    "estimated_delivery_hours": 4.27,
+    "estimated_delivery_minutes": 256.33,
+    "estimated_arrival": "2026-08-26T09:07:14"
+  },
+  "schedule": {
+    "scheduled_arrival": "2026-08-25T15:00:00",
+    "predicted_delay_minutes": 0,
+    "delay_threshold_minutes": 15
+  },
+  "delay": {
+    "delay_detected": true,
+    "alert_created": true,
+    "current_status": "delayed"
+  },
+  "evaluated_at": "2026-08-26T04:50:54"
+}
+```
+
+Values above are illustrative and depend on the current delivery state and model output.
+
+---
+
+# Dynamic ETA During Automatic Simulation
+
+The ETA is also used during the automatic background truck simulation.
+
+The full flow is:
 
 ```text
-ML ETA
-   ↓
-Predicted Delay
-   ↓
-Delivery.delay_detected
-   ↓
+Truck moves
+    ↓
+New GPS coordinates
+    ↓
+Remaining distance recalculated
+    ↓
+Random Forest receives updated distance
+    ↓
+New ETA predicted
+    ↓
+Delivery ETA updated
+    ↓
+Delay checked
+```
+
+So the frontend can observe ETA changing while the truck marker moves.
+
+---
+
+# Arrival Behavior
+
+When the truck reaches the yard gate:
+
+```text
+status = arrived_at_gate
+distance_remaining_km = 0
+eta_minutes = 0
+simulation_active = false
+```
+
+At this point, no delivery time remains because the truck has reached its destination.
+
+---
+
+# Difference Between Start ETA and Live ETA
+
+When simulation begins, the start endpoint may provide an initial ETA estimate.
+
+After background tracking begins, the live delivery ETA is recalculated using the Random Forest ETA pipeline.
+
+For the frontend, the latest tracking state should be treated as the current source of truth.
+
+---
+
+# Model Purpose
+
+The model is used to demonstrate ML-based ETA prediction for the hackathon.
+
+It is not presented as a production-grade logistics model.
+
+The main goal is to show the pipeline:
+
+```text
+Shipment Data
+    ↓
+ML ETA Model
+    ↓
+Predicted Arrival
+    ↓
+Delay Detection
+    ↓
 Operational Alert
-   ↓
-Dashboard / Frontend
-```
-
----
-
-# Relationship with Operations API
-
-ETA and Operations work together but provide different responsibilities.
-
-## ETA API
-
-Predicts future arrival.
-
-```text
-Where will this shipment arrive,
-and when?
-```
-
-## Operations API
-
-Evaluates operational conditions.
-
-```text
-Is this shipment delayed,
-exceptional,
-or operationally problematic?
-```
-
-For example:
-
-```http
-POST /operations/detect-delays
-```
-
-can evaluate deliveries independently of an explicit ML prediction request.
-
----
-
-# Relationship with Tracking
-
-Tracking provides current shipment information such as:
-
-```text
-Current Latitude
-Current Longitude
-Current Location
-Distance Remaining
-Last GPS Update
-```
-
-ETA can use the resulting distance information.
-
-Conceptually:
-
-```text
-Tracking / GPS
-      ↓
-Current Position
-      ↓
-Distance Remaining
-      ↓
-ML ETA
-      ↓
-Estimated Arrival
-```
-
----
-
-# Relationship with Restock Orders
-
-The delivery-aware endpoint uses the Delivery's associated RestockOrder to obtain shipment quantity.
-
-```text
-Delivery
-   │
-   ▼
-RestockOrder
-   │
-   ▼
-quantity
-   │
-   ▼
-ML Feature
-```
-
-The caller therefore does not need to manually know the quantity stored inside E2.
-
----
-
-# Relationship with PR2 Integration
-
-PR2 can create a shipment using:
-
-```http
-POST /integrations/shipments
-```
-
-This creates an E2:
-
-```text
-RestockOrder
-+
-Delivery
-```
-
-The resulting Delivery can later use:
-
-```http
-POST /eta/predict-delivery/{delivery_id}
-```
-
-Therefore the cross-service workflow can be:
-
-```text
-PR2
- ↓
-POST /integrations/shipments
- ↓
-E2 Delivery Created
- ↓
-Tracking / GPS
- ↓
-Remaining Distance
- ↓
-POST /eta/predict-delivery/{delivery_id}
- ↓
-ML ETA
- ↓
-Delay Evaluation
- ↓
-Alert / Dashboard
-```
-
----
-
-# ML Model
-
-The ETA model is stored at:
-
-```text
-app/ml/saved_models/eta_model.pkl
-```
-
-and loaded using:
-
-```text
-joblib
-```
-
-The trained estimator is:
-
-```text
-sklearn.ensemble.RandomForestRegressor
-```
-
-The model accepts four features:
-
-```text
-distance_km
-quantity
-supplier_delay_history
-carrier_delay_history
 ```
 
 ---
 
 # Why Random Forest?
 
-The ETA problem uses structured/tabular shipment data.
+Random Forest is suitable for this prototype because it:
 
-Random Forest is appropriate because it:
-
-- models nonlinear relationships;
-- handles interactions between shipment features;
-- works well with structured data;
-- does not require neural-network-level infrastructure;
-- is straightforward to serialize;
-- can be integrated directly into the Python backend.
+* Works well with tabular numerical data
+* Can model nonlinear relationships
+* Requires limited preprocessing
+* Is simple to integrate with Python/FastAPI
+* Can use multiple operational factors together
 
 ---
 
-# Why the Model Is Exposed Through an API
+# Production Extension
 
-Other applications do not need:
-
-```text
-Python
-Scikit-learn
-Joblib
-eta_model.pkl
-Training scripts
-```
-
-They only need the HTTP API.
-
-For example:
+In a production system, additional features could be included, such as:
 
 ```text
-Java Backend
-      ↓
-HTTP
-      ↓
-FastAPI
-      ↓
-Random Forest
-      ↓
-JSON ETA Response
+traffic conditions
+weather
+route congestion
+driver behavior
+vehicle type
+historical route duration
+warehouse congestion
+day of week
+time of day
+carrier reliability
+supplier reliability
 ```
 
-The same applies to:
-
-```text
-React
-Node.js
-Go
-.NET
-Mobile Apps
-Other Services
-```
+The current hackathon model intentionally stays lightweight.
 
 ---
 
-# ML ETA vs Simulation ETA
+# Frontend Usage
 
-E2 currently has two ETA mechanisms.
+For the frontend, the main ETA values are normally obtained through the tracking/delivery state.
 
-## ML ETA
-
-Uses:
+Useful fields include:
 
 ```text
-Distance
-Quantity
-Supplier Delay History
-Carrier Delay History
-        ↓
-Random Forest
+eta_minutes
+estimated_arrival
+distance_remaining_km
+delay_detected
+status
 ```
 
-Available through:
-
-```http
-GET /eta/predict
-```
-
-and:
-
-```http
-POST /eta/predict-delivery/{delivery_id}
-```
+The frontend can update these values every few seconds while polling the tracking endpoint.
 
 ---
 
-## Simulation ETA
+# Recommended Demo Flow
 
-GPS simulation can estimate remaining travel time using movement information such as:
-
-```text
-Remaining Distance
-       ÷
-Current / Simulated Speed
-       ↓
-Remaining Travel Time
-```
-
-Simulation endpoints include:
-
-```http
-POST /simulation/start/{delivery_id}
-POST /simulation/step/{delivery_id}
-POST /simulation/stop/{delivery_id}
-```
-
-These mechanisms are related but not identical.
+For the ETA demonstration:
 
 ```text
-ML ETA
-≠
-Simulation ETA Formula
+1. Start truck simulation
+2. Show initial distance
+3. Show initial ETA
+4. Wait for automatic truck movement
+5. Fetch tracking state again
+6. Show decreased distance
+7. Show recalculated ETA
+8. Show delay_detected if applicable
+9. Show Operations Admin alert
+10. Let truck reach Yard Gate
+11. Show ETA = 0
 ```
-
-The Random Forest model is not necessarily executed for every GPS movement.
-
----
-
-# Frontend Integration
-
-For an existing E2 shipment, the recommended frontend/backend flow is:
-
-```text
-Delivery
-   ↓
-Current Tracking State
-   ↓
-POST /eta/predict-delivery/{delivery_id}
-   ↓
-Receive
-   ├── ETA
-   ├── Predicted Arrival
-   ├── Delay Minutes
-   ├── Delay Flag
-   └── Alert Status
-   ↓
-Render Shipment Detail / Dashboard
-```
-
-The frontend should not reproduce the Random Forest calculation.
-
----
-
-# Cross-Team Integration
-
-Another backend can invoke the delivery-aware prediction using only:
-
-```text
-delivery_id
-supplier_delay_history
-carrier_delay_history
-delay_threshold_minutes
-```
-
-Example:
-
-```http
-POST /eta/predict-delivery/4?supplier_delay_history=1&carrier_delay_history=2&delay_threshold_minutes=15
-```
-
-The backend handles:
-
-```text
-Database Retrieval
-Feature Preparation
-ML Prediction
-Delivery Update
-Delay Evaluation
-Alert Handling
-```
-
----
-
-# Error Handling
-
-Integrating applications should handle:
-
-| HTTP Status | Meaning |
-|---:|---|
-| `200` | Prediction completed |
-| `404` | Delivery or required linked resource not found |
-| `400` | Required shipment state/data is not suitable for prediction |
-| `422` | Invalid path/query parameter |
-| `500` | Unexpected ML/model/backend processing failure |
-
-FastAPI validation errors use the standard structure:
-
-```json
-{
-  "detail": [
-    {
-      "loc": [
-        "query",
-        "supplier_delay_history"
-      ],
-      "msg": "Input should be greater than or equal to 0",
-      "type": "greater_than_equal"
-    }
-  ]
-}
-```
-
----
-
-# Prediction Requirements
-
-For delivery-aware prediction, E2 requires enough shipment information to derive the model features.
-
-Important data includes:
-
-```text
-Delivery exists
-Restock Order exists
-Quantity available
-Distance remaining available
-```
-
-If GPS/distance data has not been established yet, the delivery may not be ready for delivery-aware ETA prediction.
-
----
-
-# Example End-to-End ETA Flow
-
-```text
-Shipment Created
-      ↓
-Status → in_transit
-      ↓
-GPS Update
-      ↓
-distance_remaining_km available
-      ↓
-POST /eta/predict-delivery/{delivery_id}
-      ↓
-Random Forest Prediction
-      ↓
-estimated_arrival updated
-      ↓
-eta_minutes updated
-      ↓
-Compare with scheduled_arrival
-      ↓
-Delay?
-   ┌──────┴──────┐
-   No            Yes
-                 ↓
-          delay_detected = true
-                 ↓
-             Alert
-                 ↓
-            Dashboard
-```
-
----
-
-# Recommended API Usage
-
-## Standalone Model Testing
-
-Use:
-
-```http
-GET /eta/predict
-```
-
-when you already have all four model features and only need a prediction.
-
----
-
-## Real E2 Shipment
-
-Use:
-
-```http
-POST /eta/predict-delivery/{delivery_id}
-```
-
-when the shipment already exists inside E2 and you want ETA prediction integrated with:
-
-```text
-Delivery
-Restock Order
-Delay Detection
-Alerts
-Dashboard
-```
-
----
-
-# Current Limitations
-
-The current ETA implementation:
-
-- uses four trained features;
-- does not automatically retrieve real historical supplier/carrier metrics from an external analytics system;
-- does not currently use live traffic APIs;
-- does not retrain automatically;
-- does not provide model-confidence intervals;
-- does not version predictions;
-- uses project/training data rather than a production-scale logistics dataset;
-- keeps ML prediction and simulation travel-time logic as separate mechanisms.
-
-These limitations do not prevent the current ETA workflow from being used for project integration and demonstration.
 
 ---
 
 # Summary
 
-The ETA API supports both standalone ML prediction and delivery-integrated operational prediction.
+The ETA API provides:
 
-```text
-                ETA
-                 │
-        ┌────────┴────────┐
-        │                 │
-Direct Model        Existing Delivery
-Prediction          Prediction
-        │                 │
-        └────────┬────────┘
-                 ↓
-       RandomForestRegressor
-                 ↓
-          Estimated Arrival
-                 ↓
-         Delay Evaluation
-                 ↓
-      Operations / Dashboard
-```
+* Standalone Random Forest ETA prediction
+* Delivery-aware ETA prediction
+* Dynamic ETA updates
+* Delay calculation
+* Delay threshold handling
+* Automatic delay alerts
+* Integration with simulated real-time truck movement
 
-Use:
-
-```http
-GET /eta/predict
-```
-
-for direct feature-based prediction.
-
-Use:
-
-```http
-POST /eta/predict-delivery/{delivery_id}
-```
-
-for the complete E2 shipment ETA workflow.
+For the hackathon, the model uses real delivery/simulation values where available and prototype/default historical-delay values where enterprise historical data is unavailable.
